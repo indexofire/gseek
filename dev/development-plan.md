@@ -39,7 +39,7 @@
 | 测试 | 321 个单元/契约 + 35 个集成；覆盖率 88%；ruff + pyright 全绿 |
 
 当前包可以被 `import gseek`、安装，并已通过 8 个后端跑通真实工具，已实现 `replay`；
-0.3.0 已发布 PyPI。下一步是 gmlst/gapit parity。
+0.3.0 已发布 PyPI（sourmash rocksdb 支持）。下一步是 gmlst/gapit parity。
 
 ## 2. 背景与问题
 
