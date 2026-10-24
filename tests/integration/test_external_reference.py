@@ -96,3 +96,51 @@ def test_sourmash_external_signature_and_replay(tmp_path: Path) -> None:
 
     outcome = gseek.replay(manifest, check=True, store=store)
     assert outcome.matches is True
+
+
+@pytest.mark.skipif(shutil.which("sourmash") is None, reason="sourmash not installed")
+def test_sourmash_external_rocksdb_directory_and_replay(tmp_path: Path) -> None:
+    query, target = _fixture(tmp_path)
+    signature = tmp_path / "refs.sig"
+    subprocess.run(
+        [
+            "sourmash",
+            "sketch",
+            "dna",
+            "-p",
+            "k=21,scaled=10",
+            "-o",
+            str(signature),
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    reference = tmp_path / "refs.rocksdb"
+    subprocess.run(
+        ["sourmash", "index", "-k", "21", "-F", "rocksdb", str(reference), str(signature)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    store = IndexStore(tmp_path / "cache")
+    manifest = tmp_path / "sourmash-rocksdb.json"
+
+    result = gseek.distance(
+        backend="sourmash",
+        query=query,
+        reference=reference,
+        external_reference=True,
+        params={"k": 21, "scaled": 10},
+        store=store,
+        manifest=manifest,
+    )
+    assert result.records
+    assert result.index is None
+    assert result.references[0].kind is InputKind.SKETCH
+    assert result.references[0].path == str(reference.resolve())
+    assert gseek.verify(manifest) == ()
+
+    outcome = gseek.replay(manifest, check=True, store=store)
+    assert outcome.matches is True

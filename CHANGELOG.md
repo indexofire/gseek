@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-24
+
+### Added
+
+- Directory external references for sourmash rocksdb databases. `gseek.distance(
+  ..., external_reference=True)` now accepts a directory as well as a single
+  `.msh`/`.sig`/`.zip` file.
+- Deterministic directory tree hashing (`sha256_tree`): sorted relative paths,
+  entry type, and regular-file content. Manifest `verify` and `replay` handle
+  directory references; symlinks inside the tree are rejected.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

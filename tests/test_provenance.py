@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
+
+import pytest
 
 from gseek.model import AlignmentRecord, DistanceRecord, RunManifest, ToolRef
 from gseek.provenance import (
@@ -16,12 +19,13 @@ from gseek.provenance import (
     sha256_bytes,
     sha256_file,
     sha256_text,
+    sha256_tree,
     to_jsonable,
     utc_now_iso,
     verify_manifest,
     write_manifest,
 )
-from gseek.types import RUN_SCHEMA
+from gseek.types import RUN_SCHEMA, InputKind
 
 
 def _manifest(tmp_path: Path) -> RunManifest:
@@ -142,3 +146,56 @@ def test_distance_result_hash_is_independent_of_record_order() -> None:
     first = DistanceRecord(query_id="q", reference_id="a", distance=0.1)
     second = DistanceRecord(query_id="q", reference_id="b", distance=0.2)
     assert distance_result_hash((first, second)) == distance_result_hash((second, first))
+
+
+def test_sha256_tree_is_deterministic_and_content_addressed(tmp_path: Path) -> None:
+    tree = tmp_path / "db"
+    (tree / "sub").mkdir(parents=True)
+    (tree / "b.bin").write_bytes(b"b")
+    (tree / "sub" / "a.bin").write_bytes(b"a")
+    first = sha256_tree(tree)
+
+    # Creation order must not matter.
+    other = tmp_path / "other"
+    (other / "sub").mkdir(parents=True)
+    (other / "sub" / "a.bin").write_bytes(b"a")
+    (other / "b.bin").write_bytes(b"b")
+    assert sha256_tree(other) == first
+
+    (tree / "sub" / "a.bin").write_bytes(b"changed")
+    assert sha256_tree(tree) != first
+
+
+def test_input_ref_accepts_sketch_directory(tmp_path: Path) -> None:
+    tree = tmp_path / "rocksdb"
+    tree.mkdir()
+    (tree / "CURRENT").write_text("MANIFEST-1\n", encoding="utf-8")
+    (tree / "000001.sst").write_bytes(b"data")
+    ref = input_ref(tree, kind=InputKind.SKETCH, compute_records=False)
+    assert ref.kind is InputKind.SKETCH
+    assert ref.path == str(tree.resolve())
+    assert ref.size == len("MANIFEST-1\n") + 4
+    assert ref.records is None
+    assert ref.sha256 == sha256_tree(tree)
+
+
+def test_input_ref_rejects_non_sketch_directory(tmp_path: Path) -> None:
+    tree = tmp_path / "db"
+    tree.mkdir()
+    with pytest.raises(Exception, match="sketch external references"):
+        input_ref(tree, kind=InputKind.FASTA)
+
+
+def test_verify_manifest_detects_directory_tampering(tmp_path: Path) -> None:
+    tree = tmp_path / "rocksdb"
+    tree.mkdir()
+    (tree / "000001.sst").write_bytes(b"data")
+    manifest = dataclasses.replace(
+        _manifest(tmp_path),
+        targets=(input_ref(tree, kind=InputKind.SKETCH, compute_records=False),),
+    )
+    assert verify_manifest(manifest) == ()
+    (tree / "000001.sst").write_bytes(b"DATA")
+    issues = verify_manifest(manifest)
+    assert issues
+    assert issues[0].code == "TARGET_HASH_MISMATCH"

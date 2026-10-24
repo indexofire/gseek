@@ -79,6 +79,75 @@ def sha256_file(path: Path, *, chunk_size: int = _CHUNK_SIZE) -> str:
     return digest.hexdigest()
 
 
+def _tree_entries(root: Path) -> Iterable[tuple[Path, str, str]]:
+    """Yield regular files/directories in deterministic relative-path order.
+
+    Symlinks are rejected: following them would make a manifest depend on
+    files outside the external reference and complicate reproducibility.
+    """
+    try:
+        entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
+    except OSError as exc:
+        raise InputError(
+            f"cannot read directory for hashing: {root}: {exc}", context={"path": str(root)}
+        ) from exc
+    for path in entries:
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            raise InputError(
+                "external reference directory contains a symlink",
+                context={"path": str(path)},
+                hint="use a real directory or a single .sig/.zip file",
+            )
+        if path.is_dir():
+            yield path, relative, "D"
+        elif path.is_file():
+            yield path, relative, "F"
+        else:
+            raise InputError(
+                "external reference directory contains an unsupported entry",
+                context={"path": str(path)},
+            )
+
+
+def sha256_tree(path: Path) -> str:
+    """Hash a directory tree deterministically (relative paths + file bytes).
+
+    The tree hash is not a hash of a tar/zip; it is gseek's stable directory
+    identity. Entries are sorted by POSIX relative path and include type, path,
+    and regular-file content. Symlinks are rejected.
+    """
+    root = path.resolve()
+    if not root.is_dir():
+        raise InputError(f"directory not found: {path}", context={"path": str(path)})
+    digest = hashlib.sha256(b"gseek.tree/1\0")
+    for child, relative, kind in _tree_entries(root):
+        encoded = relative.encode("utf-8")
+        digest.update(kind.encode("ascii") + b"\0")
+        digest.update(encoded + b"\0")
+        if kind == "F":
+            digest.update(bytes.fromhex(sha256_file(child)))
+    return digest.hexdigest()
+
+
+def directory_size(path: Path) -> int:
+    """Total size of regular files in a directory tree (symlinks rejected)."""
+    root = path.resolve()
+    if not root.is_dir():
+        raise InputError(f"directory not found: {path}", context={"path": str(path)})
+    total = 0
+    for child, _relative, kind in _tree_entries(root):
+        if kind == "F":
+            try:
+                total += child.stat().st_size
+            except OSError as exc:
+                raise InputError(
+                    f"cannot stat directory entry: {child}: {exc}",
+                    context={"path": str(child)},
+                ) from exc
+    return total
+
+
 def to_jsonable(value: Any) -> Any:
     """Best-effort conversion of dataclasses/Path/Enum/tuples to JSON values."""
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
@@ -168,6 +237,20 @@ def input_ref(
     compute_records: bool = True,
 ) -> InputRef:
     resolved = path.resolve()
+    if resolved.is_dir():
+        if kind is not InputKind.SKETCH:
+            raise InputError(
+                "directory inputs are only supported for sketch external references",
+                context={"path": str(path)},
+            )
+        return InputRef(
+            path=str(resolved),
+            size=directory_size(resolved),
+            sha256=sha256_tree(resolved),
+            kind=InputKind.SKETCH,
+            records=None,
+            compressed=False,
+        )
     if not resolved.is_file():
         raise InputError(f"input file not found: {path}", context={"path": str(path)})
     resolved_kind = kind or detect_input_kind(resolved)
@@ -311,7 +394,23 @@ def verify_manifest(manifest: RunManifest, *, base_dir: Path | None = None) -> t
     for label, refs in groups:
         for ref in refs:
             path = _resolve_ref_path(ref.path, base_dir)
-            if not path.is_file():
+            if path.is_dir():
+                if not isinstance(ref, InputRef) or ref.kind is not InputKind.SKETCH:
+                    issues.append(
+                        Issue(
+                            code=f"{label.upper()}_UNEXPECTED_DIRECTORY",
+                            message=f"{label} points at a directory: {path}",
+                            severity="error",
+                            context={"path": str(path)},
+                        )
+                    )
+                    continue
+                size = directory_size(path)
+                digest = sha256_tree(path)
+            elif path.is_file():
+                size = path.stat().st_size
+                digest = sha256_file(path)
+            else:
                 issues.append(
                     Issue(
                         code=f"{label.upper()}_MISSING",
@@ -321,7 +420,6 @@ def verify_manifest(manifest: RunManifest, *, base_dir: Path | None = None) -> t
                     )
                 )
                 continue
-            size = path.stat().st_size
             if size != ref.size:
                 issues.append(
                     Issue(
@@ -332,7 +430,6 @@ def verify_manifest(manifest: RunManifest, *, base_dir: Path | None = None) -> t
                     )
                 )
                 continue
-            digest = sha256_file(path)
             if digest != ref.sha256:
                 issues.append(
                     Issue(
@@ -349,6 +446,7 @@ __all__ = [
     "VOLATILE_PARAM_KEYS",
     "alignment_result_hash",
     "canonical_json",
+    "directory_size",
     "distance_result_hash",
     "file_ref",
     "gseek_version",
@@ -365,6 +463,7 @@ __all__ = [
     "sha256_file",
     "sha256_json",
     "sha256_text",
+    "sha256_tree",
     "to_jsonable",
     "tool_refs",
     "utc_now_iso",

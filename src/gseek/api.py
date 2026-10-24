@@ -153,7 +153,9 @@ def distance(
         timeout_s: Per-command timeout; ``None`` uses the adapter default.
         index: Content-addressed index policy for FASTA references.
         external_reference: Treat ``reference`` as a pre-built ``.msh``,
-            ``.sig``, or ``.zip`` artifact. No index is built or referenced.
+            ``.sig``, or ``.zip`` artifact, or as a sourmash rocksdb directory.
+            No index is built or referenced; directory references are hashed
+            as a deterministic tree.
         work_dir: Parent directory for temporary run workspaces.
         keep_work: Keep the workspace for debugging.
         manifest: Write a ``gseek.run/1`` manifest for ``verify``/``replay``.

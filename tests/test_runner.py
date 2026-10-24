@@ -332,3 +332,22 @@ def test_external_reference_skips_index_and_records_sketch_kind(fasta_pair, tmp_
     assert result.references[0].kind is InputKind.SKETCH
     assert result.manifest is not None
     assert result.manifest.extra["external_reference"] is True
+
+
+def test_external_reference_accepts_sketch_directory(fasta_pair, tmp_path: Path) -> None:
+    query, _target = fasta_pair
+    reference = tmp_path / "rocksdb"
+    reference.mkdir()
+    (reference / "CURRENT").write_text("MANIFEST-1\n", encoding="utf-8")
+    result = run_distance(
+        DistanceRequest(
+            query=(query,),
+            reference=(reference,),
+            external_reference=True,
+        ),
+        adapter=FakeDistanceAdapter(),
+        store=IndexStore(tmp_path / "cache"),
+    )
+    assert result.references[0].path == str(reference.resolve())
+    assert result.references[0].kind is InputKind.SKETCH
+    assert result.index is None

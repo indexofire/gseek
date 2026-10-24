@@ -1,6 +1,6 @@
 # gseek API 参考
 
-> 版本：0.2.0（alpha）  
+> 版本：0.3.0（alpha）  
 > 适用范围：Python ≥ 3.12  
 > 源码基准：`src/gseek/`  
 > 新用户请先读 [Quickstart](quickstart.md) 与 [CLI](cli.md)。  
@@ -66,7 +66,7 @@ pixi run check
 ```python
 import gseek
 
-print(gseek.__version__)          # "0.2.0"
+print(gseek.__version__)          # "0.3.0"
 print(gseek.ALIGNMENT_SCHEMA)     # "gseek.alignment/1"
 ```
 
@@ -307,10 +307,17 @@ gseek.distance(
 用于 mash/sourmash 等 MinHash/距离后端。语义与 `align` 类似，但参数是 `reference`，
 结果是 `DistanceResult`，没有坐标。
 
-`external_reference=True` 表示 `reference` 是**预构建距离产物**（mash `.msh`、
-sourmash `.sig`/`.zip`），不是 FASTA。此时 gseek 跳过索引构建与 reference
-sketch，直接把该文件交给 `mash dist` / `sourmash gather`；manifest 中的
-`InputRef.kind` 为 `sketch`。目前只接受单个文件，不支持 skani database 目录。
+`external_reference=True` 表示 `reference` 是**预构建距离产物**，不是 FASTA。
+支持两种形式：
+
+- 单文件：mash `.msh`、sourmash `.sig`/`.zip`；
+- 目录：sourmash rocksdb 数据库（`sourmash index -F rocksdb` 生成）。
+
+此时 gseek 跳过索引构建与 reference sketch，直接把路径交给 `mash dist` /
+`sourmash gather`；manifest 中的 `InputRef.kind` 为 `sketch`。目录使用
+`sha256_tree` 做确定性哈希（排序后的相对路径、类型、文件内容；树内 symlink
+被拒绝），因此 `verify`/`replay` 同样适用。skani database 目录仍不支持
+external 模式。
 
 > 当前 distance 后端为 `mash`、`sourmash` 与 `skani`。
 
@@ -386,7 +393,7 @@ if issues:
 ### 4.6 版本与 schema 常量
 
 ```python
-gseek.__version__        # "0.2.0"
+gseek.__version__        # "0.3.0"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -1118,7 +1125,7 @@ store.gc(max_bytes=None, max_age_days=None, dry_run=True)
 ```python
 key = compute_index_key(
     adapter="minimap2",
-    adapter_version="1+gseek.0.2.0",
+    adapter_version="1+gseek.0.3.0",
     targets=(target_ref,),
     params={"preset": "asm5"},
     tool_versions={"minimap2": "2.30-r1287"},
@@ -1545,7 +1552,7 @@ gseek replay runs/sample.manifest.json --check --json
   "run_id": "8f0c…",
   "recipe_hash": "4a7d…",
   "created_at": "2026-10-22T12:00:00Z",
-  "gseek_version": "0.2.0",
+  "gseek_version": "0.3.0",
   "python_version": "3.12.15",
   "platform": "Linux-6.12-x86_64",
   "hostname": "compute-01",
@@ -1598,7 +1605,7 @@ gseek replay runs/sample.manifest.json --check --json
 
 ### 14.1 版本策略
 
-- 包版本遵循 SemVer（当前 `0.2.0`，alpha）。
+- 包版本遵循 SemVer（当前 `0.3.0`，alpha）。
 - schema 版本独立：`gseek.alignment/1` 等；破坏性字段变更必须升 schema 版本。
 - 1.0 前公共 API 仍可能调整，但适配器协议与结果模型会尽量保持稳定。
 

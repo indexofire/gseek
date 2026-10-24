@@ -39,8 +39,9 @@ class InputKind(StrEnum):
 
     FASTA = "fasta"
     FASTQ = "fastq"
-    #: Pre-built distance artifact (mash .msh, sourmash .sig/.zip) used as an
-    #: external reference; the adapter consumes it instead of sketching FASTA.
+    #: Pre-built distance artifact (mash .msh, sourmash .sig/.zip) or a
+    #: sourmash rocksdb directory used as an external reference; the adapter
+    #: consumes it instead of sketching FASTA.
     SKETCH = "sketch"
 
 

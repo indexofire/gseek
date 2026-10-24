@@ -14,7 +14,7 @@ gseek --error-format {json,text} <command> ...
 
 | 选项 | 说明 |
 | --- | --- |
-| `--version` | 打印 `gseek 0.2.0` |
+| `--version` | 打印 `gseek 0.3.0` |
 | `--error-format json` | 默认；stderr 一行 `gseek.error/1` JSON |
 | `--error-format text` | 人类可读的 `gseek: message` + `hint:` |
 
@@ -70,8 +70,9 @@ gseek distance \
   --param max_distance=1.0
 ```
 
-`--external-reference` 表示 `--reference` 是单个预构建 `.msh` / `.sig` / `.zip`，
-不建索引、不重新 sketch reference。skani database 目录暂不支持 external 模式。
+`--external-reference` 表示 `--reference` 是预构建产物：单个 `.msh` / `.sig` /
+`.zip`，或 sourmash rocksdb 目录。不建索引、不重新 sketch reference；目录按
+确定性 tree hash 记录。skani database 目录暂不支持 external 模式。
 
 ## 机器可读输出
 
