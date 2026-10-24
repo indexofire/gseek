@@ -531,7 +531,7 @@ Schema：`gseek.run/1`。示例：
   "run_id": "01J...",
   "recipe_hash": "sha256:...",
   "created_at": "2026-10-22T13:00:00Z",
-  "gseek_version": "0.1.0",
+  "gseek_version": "0.2.0",
   "python_version": "3.12.11",
   "platform": "Linux-6.12-x86_64",
   "hostname": "compute-01",
@@ -577,7 +577,7 @@ Schema：`gseek.run/1`。示例：
 ```text
 sha256(canonical_json({
   "schema": "gseek.recipe/1",
-  "gseek_version": "0.1.0",
+  "gseek_version": "0.2.0",
   "backend": "minimap2",
   "adapter_version": "1",
   "params": {...},
@@ -789,7 +789,7 @@ class BlastAdapter:
 ```toml
 [project]
 name = "gseek"          # 见 15.1：原 gcore 名称冲突，2026-10-22 更名
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.12"
 dependencies = []            # 核心零依赖
 [project.optional-dependencies]
