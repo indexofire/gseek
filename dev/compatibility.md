@@ -249,7 +249,7 @@ skani `AniHit`：M4 增加 `SkaniAdapter` 后再映射；第一版不在范围�
 
 ### 5.1 当前 parity 方式
 
-`gseek.testing` 尚未发布（早期草案，不在 0.5.0 公共 API 中）。当前 parity 使用
+`gseek.testing` 尚未发布（早期草案，不在 0.6.0 公共 API 中）。当前 parity 使用
 `tests/parity/test_real_tool_fixtures.py` 中的显式字段断言，直接对照消费者代码里的
 公式，而不是依赖一个通用的记录比较器。
 

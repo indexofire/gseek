@@ -50,6 +50,7 @@ def align(
     work_dir: Path | str | None = None,
     keep_work: bool = False,
     manifest: Path | str | None = None,
+    record_manifest: bool = True,
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
@@ -116,6 +117,7 @@ def align(
         executor=executor,
         store=store,
         manifest_path=Path(manifest) if manifest is not None else None,
+        record_manifest=record_manifest,
     )
 
 
@@ -136,6 +138,7 @@ def distance(
     work_dir: Path | str | None = None,
     keep_work: bool = False,
     manifest: Path | str | None = None,
+    record_manifest: bool = True,
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
@@ -197,6 +200,7 @@ def distance(
         executor=executor,
         store=store,
         manifest_path=Path(manifest) if manifest is not None else None,
+        record_manifest=record_manifest,
     )
 
 

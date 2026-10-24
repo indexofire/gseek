@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-24
+
+### Added
+
+- `record_manifest=False` on `gseek.align()` / `gseek.distance()`: skip run
+  manifest construction and canonical result hashing for latency-sensitive
+  consumers that do not need provenance. Default remains `True`; specifying a
+  manifest path with `record_manifest=False` is rejected.
+
 ## [0.5.0] - 2026-10-24
 
 ### Added

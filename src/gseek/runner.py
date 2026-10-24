@@ -377,6 +377,7 @@ def run_alignment(
     executor: Executor | None = None,
     store: IndexStore | None = None,
     manifest_path: Path | None = None,
+    record_manifest: bool = True,
 ) -> AlignmentResult:
     """Run one alignment request and return normalized records plus provenance."""
     started = time.monotonic()
@@ -484,19 +485,21 @@ def run_alignment(
             runtime_s=runtime_s,
         )
         commands = (*index_commands, *align_commands)
-        manifest = _build_manifest(
-            spec=spec,
-            request=effective_request,
-            query_refs=query_refs,
-            target_refs=target_refs,
-            params=params,
-            tools=tools,
-            index=index,
-            commands=commands,
-            started=started,
-            env=executor.base_env,
-            result_hash_value=alignment_result_hash(normalized),
-        )
+        manifest = None
+        if record_manifest:
+            manifest = _build_manifest(
+                spec=spec,
+                request=effective_request,
+                query_refs=query_refs,
+                target_refs=target_refs,
+                params=params,
+                tools=tools,
+                index=index,
+                commands=commands,
+                started=started,
+                env=executor.base_env,
+                result_hash_value=alignment_result_hash(normalized),
+            )
         result = AlignmentResult(
             backend=spec.name,
             records=normalized,
@@ -508,7 +511,10 @@ def run_alignment(
             manifest=manifest,
         )
         destination = _prepare_manifest_path(manifest_path)
+        if destination is not None and not record_manifest:
+            raise ConfigError("manifest_path requires record_manifest=True")
         if destination is not None:
+            assert manifest is not None
             write_manifest(destination, manifest)
         return result
     finally:
@@ -524,6 +530,7 @@ def run_distance(
     executor: Executor | None = None,
     store: IndexStore | None = None,
     manifest_path: Path | None = None,
+    record_manifest: bool = True,
 ) -> DistanceResult:
     """Run one MinHash/distance request."""
     started = time.monotonic()
@@ -624,19 +631,21 @@ def run_distance(
             runtime_s=runtime_s,
         )
         commands = (*index_commands, *distance_commands)
-        manifest = _build_manifest(
-            spec=spec,
-            request=effective_request,
-            query_refs=query_refs,
-            target_refs=target_refs,
-            params=params,
-            tools=tools,
-            index=index,
-            commands=commands,
-            started=started,
-            env=executor.base_env,
-            result_hash_value=distance_result_hash(normalized),
-        )
+        manifest = None
+        if record_manifest:
+            manifest = _build_manifest(
+                spec=spec,
+                request=effective_request,
+                query_refs=query_refs,
+                target_refs=target_refs,
+                params=params,
+                tools=tools,
+                index=index,
+                commands=commands,
+                started=started,
+                env=executor.base_env,
+                result_hash_value=distance_result_hash(normalized),
+            )
         result = DistanceResult(
             backend=spec.name,
             records=normalized,
@@ -648,7 +657,10 @@ def run_distance(
             manifest=manifest,
         )
         destination = _prepare_manifest_path(manifest_path)
+        if destination is not None and not record_manifest:
+            raise ConfigError("manifest_path requires record_manifest=True")
         if destination is not None:
+            assert manifest is not None
             write_manifest(destination, manifest)
         return result
     finally:

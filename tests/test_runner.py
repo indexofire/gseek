@@ -378,3 +378,23 @@ def test_external_reference_digest_skips_hashing(fasta_pair, tmp_path: Path, mon
     )
     assert result.references[0].sha256 == "a" * 64
     assert reference not in calls
+
+
+def test_distance_record_manifest_false_skips_result_hash(
+    fasta_pair, tmp_path: Path, monkeypatch
+) -> None:
+    query, target = fasta_pair
+    import gseek.runner as runner
+
+    monkeypatch.setattr(
+        runner,
+        "distance_result_hash",
+        lambda records: (_ for _ in ()).throw(AssertionError("hash should be skipped")),
+    )
+    result = run_distance(
+        DistanceRequest(query=(query,), reference=(target,)),
+        adapter=FakeDistanceAdapter(),
+        store=IndexStore(tmp_path / "cache"),
+        record_manifest=False,
+    )
+    assert result.manifest is None
