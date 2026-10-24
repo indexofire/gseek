@@ -57,7 +57,7 @@ KMA 的 `Template_Coverage` 直接填入 `target_coverage`（除以 100），不
 
 | 家族 | 实现 | 输入 | 输出 | 索引 | 配对 | 流式 | 线程 | 坐标 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `blast` | `blastn` / `blastp` / `blastx` / `tblastn` / `tblastx` | FASTA | tabular | target | 否 | 是 | 是 | 有 | 蛋白模式需单独参数 |
+| `blast` | `blastn` / `blastp` / `blastx` / `blastx-fast` / `tblastn` / `tblastx` | FASTA | tabular | target | 否 | 是 | 是 | 有 | 蛋白模式需单独参数 |
 | `minimap2` | `minimap2` | FASTA / FASTQ | PAF / SAM | target | 是 | 是 | 是 | 有 | 预设决定灵敏度 |
 | `mummer` | `nucmer` + `show-coords` | FASTA | coords | 无 | 否 | 是 | 有限 | 有 | 需处理 delta |
 | `kma` | `kma` | FASTA / FASTQ | `.res` | target | 是 | 否（文件） | 是 | 无 | 模板级结果 |
@@ -72,7 +72,7 @@ KMA 的 `Template_Coverage` 直接填入 `target_coverage`（除以 100），不
 | --- | --- | --- | --- | --- |
 | aligner | `blastn`（默认） | `blastn -version` | `blastn:\s*(\d+)\.(\d+)\.(\d+)` | 2.2.30 |
 | indexer | `makeblastdb` | `makeblastdb -version` | 同上 | 2.2.30 |
-| 蛋白模式 | `blastp` / `blastx` / `tblastn` / `tblastx` | `<tool> -version` | 同上 | 2.2.30 |
+| 蛋白模式 | `blastp` / `blastx` / `blastx-fast` / `tblastn` / `tblastx` | `<tool> -version` | 同上 | 2.2.30 |
 
 ### 2.2 索引
 

@@ -306,6 +306,7 @@ def test_index_and_semantic_params(tmp_path: Path) -> None:
     assert adapter.index_params({"threads": 8, "evalue": 1e-5}) == {"dbtype": "nucl"}
     assert adapter.index_params({"task": "blastp"}) == {"dbtype": "prot"}
     assert adapter.index_params({"task": "blastx"}) == {"dbtype": "prot"}
+    assert adapter.index_params({"task": "blastx-fast"}) == {"dbtype": "prot"}
     assert adapter.index_params({"task": "tblastn"}) == {"dbtype": "nucl"}
     assert adapter.index_params({"task": "tblastx"}) == {"dbtype": "nucl"}
     semantic = adapter.semantic_params({"threads": 8, "evalue": 1e-5, "debug": True})
@@ -317,6 +318,7 @@ def test_index_and_semantic_params(tmp_path: Path) -> None:
     [
         ("blastp", "blastp", "prot", ("targets.phr", "targets.pin", "targets.psq")),
         ("blastx", "blastx", "prot", ("targets.phr", "targets.pin", "targets.psq")),
+        ("blastx-fast", "blastx", "prot", ("targets.phr", "targets.pin", "targets.psq")),
         ("tblastn", "tblastn", "nucl", ("targets.nhr", "targets.nin", "targets.nsq")),
         ("tblastx", "tblastx", "nucl", ("targets.nhr", "targets.nin", "targets.nsq")),
     ],
@@ -353,7 +355,7 @@ def test_protein_tasks_plan_binary_dbtype_and_artifacts(
         assert "-task" not in argv
     else:
         assert argv[argv.index("-task") + 1] == task
-    if task in {"blastp", "blastx", "tblastn", "tblastx"}:
+    if task in {"blastp", "blastx", "blastx-fast", "tblastn", "tblastx"}:
         assert "-seg" in argv
         assert argv[argv.index("-seg") + 1] == "no"
         assert "-dust" not in argv

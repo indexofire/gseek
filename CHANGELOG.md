@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-25
+
+### Added
+
+- BLAST `blastx-fast` task support (gapit uses this faster protein task).
+
 ## [0.6.0] - 2026-10-24
 
 ### Added

@@ -41,7 +41,16 @@ _OUTFMT_FIELDS = (
 )
 _OUTFMT = "6 " + " ".join(_OUTFMT_FIELDS)
 _SUPPORTED_TASKS = frozenset(
-    {"blastn", "megablast", "dc-megablast", "blastp", "blastx", "tblastn", "tblastx"}
+    {
+        "blastn",
+        "megablast",
+        "dc-megablast",
+        "blastp",
+        "blastx",
+        "blastx-fast",
+        "tblastn",
+        "tblastx",
+    }
 )
 _TASK_TO_BINARY = {
     "blastn": "blastn",
@@ -49,6 +58,7 @@ _TASK_TO_BINARY = {
     "dc-megablast": "blastn",
     "blastp": "blastp",
     "blastx": "blastx",
+    "blastx-fast": "blastx",
     "tblastn": "tblastn",
     "tblastx": "tblastx",
 }
@@ -58,10 +68,11 @@ _TASK_TO_DBTYPE = {
     "dc-megablast": "nucl",
     "blastp": "prot",
     "blastx": "prot",
+    "blastx-fast": "prot",
     "tblastn": "nucl",
     "tblastx": "nucl",
 }
-_PROTEIN_TASKS = frozenset({"blastp", "blastx", "tblastn", "tblastx"})
+_PROTEIN_TASKS = frozenset({"blastp", "blastx", "blastx-fast", "tblastn", "tblastx"})
 _INDEX_ARTIFACTS = {
     "nucl": ("targets.nhr", "targets.nin", "targets.nsq"),
     "prot": ("targets.phr", "targets.pin", "targets.psq"),
