@@ -131,6 +131,8 @@ def distance(
     timeout_s: float | None = None,
     index: IndexPolicy | str = IndexPolicy.AUTO,
     external_reference: bool = False,
+    external_sha256: str | None = None,
+    external_size: int | None = None,
     work_dir: Path | str | None = None,
     keep_work: bool = False,
     manifest: Path | str | None = None,
@@ -153,9 +155,12 @@ def distance(
         timeout_s: Per-command timeout; ``None`` uses the adapter default.
         index: Content-addressed index policy for FASTA references.
         external_reference: Treat ``reference`` as a pre-built ``.msh``,
-            ``.sig``, or ``.zip`` artifact, or as a sourmash rocksdb directory.
-            No index is built or referenced; directory references are hashed
-            as a deterministic tree.
+            ``.sig``, or ``.zip`` artifact, or as a sourmash rocksdb / skani
+            database directory. No index is built or referenced.
+        external_sha256: Optional pre-computed SHA-256 for the external
+            reference. Requires ``external_size``; skips re-hashing.
+        external_size: Size in bytes of the external reference (regular-file
+            bytes for a directory tree). Validated against the path.
         work_dir: Parent directory for temporary run workspaces.
         keep_work: Keep the workspace for debugging.
         manifest: Write a ``gseek.run/1`` manifest for ``verify``/``replay``.
@@ -179,6 +184,8 @@ def distance(
         timeout_s=timeout_s,
         index_policy=IndexPolicy(index),
         external_reference=external_reference,
+        external_sha256=external_sha256,
+        external_size=external_size,
         work_dir=Path(work_dir) if work_dir is not None else None,
         keep_work=keep_work,
     )

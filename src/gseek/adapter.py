@@ -69,6 +69,8 @@ class DistanceRequest:
     timeout_s: float | None = None
     index_policy: IndexPolicy = IndexPolicy.AUTO
     external_reference: bool = False
+    external_sha256: str | None = None
+    external_size: int | None = None
     work_dir: Path | None = None
     keep_work: bool = False
 
@@ -82,6 +84,14 @@ class DistanceRequest:
         if self.external_reference and len(self.reference) != 1:
             raise UnsupportedFeatureError(
                 "external_reference requires exactly one pre-built reference file"
+            )
+        if (self.external_sha256 is None) != (self.external_size is None):
+            raise UnsupportedFeatureError(
+                "external_sha256 and external_size must be supplied together"
+            )
+        if self.external_sha256 is not None and not self.external_reference:
+            raise UnsupportedFeatureError(
+                "external_sha256/external_size require external_reference=True"
             )
 
 

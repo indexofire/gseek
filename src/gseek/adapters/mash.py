@@ -139,24 +139,35 @@ class MashAdapter(BaseAdapter):
             )
             return AlignPlan(commands=tuple(commands), stream=True)
 
-        query_prefix = ctx.path("query")
-        commands.insert(
-            0,
-            CommandPlan(
-                argv=tuple(
-                    _sketch_argv(
-                        request.query,
-                        query_prefix,
-                        params,
-                        threads=request.threads,
-                        reads=bool(params.get("reads")),
-                    )
-                ),
-                label="mash sketch queries",
-                timeout_s=request.timeout_s,
-            ),
+        query_kind = request.query_kind or detect_input_kind(request.query[0])
+        direct_query = (
+            request.external_reference
+            and len(request.query) == 1
+            and query_kind is InputKind.FASTA
+            and mode == "dist"
+            and not any(key in params for key in ("k", "sketch_size", "seed", "reads"))
         )
-        query_sketch = query_prefix.with_suffix(".msh")
+        if direct_query:
+            query_argument = str(request.query[0].resolve())
+        else:
+            query_prefix = ctx.path("query")
+            commands.insert(
+                0,
+                CommandPlan(
+                    argv=tuple(
+                        _sketch_argv(
+                            request.query,
+                            query_prefix,
+                            params,
+                            threads=request.threads,
+                            reads=bool(params.get("reads")),
+                        )
+                    ),
+                    label="mash sketch queries",
+                    timeout_s=request.timeout_s,
+                ),
+            )
+            query_argument = str(query_prefix.with_suffix(".msh"))
         dist_argv = [
             "mash",
             "dist",
@@ -165,7 +176,7 @@ class MashAdapter(BaseAdapter):
             "-d",
             str(params.get("max_distance", _DEFAULT_MAX_DISTANCE)),
             str(reference_sketch),
-            str(query_sketch),
+            query_argument,
         ]
         commands.append(
             CommandPlan(

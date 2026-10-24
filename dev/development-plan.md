@@ -36,10 +36,10 @@
 | M3 适配器：BWA/mash/sourmash | **适配器级完成**（真实工具集成测试通过） |
 | M4 适配器：蛋白 BLAST/sourmash gather/skani/replay | **完成**（真实工具集成测试通过） |
 | 消费者 parity 迁移（gmlst/gapit/gside） | 进行中：gside 分支已完成；gmlst/gapit 未开始（P1/P2） |
-| 测试 | 322 个单元/契约 + 36 个集成；覆盖率 88%；ruff + pyright 全绿 |
+| 测试 | 324 个单元/契约 + 36 个集成；覆盖率 88%；ruff + pyright 全绿 |
 
 当前包可以被 `import gseek`、安装，并已通过 8 个后端跑通真实工具，已实现 `replay`；
-0.4.0 已发布 PyPI（sourmash rocksdb 支持）。下一步是 gmlst/gapit parity。
+0.5.0 已发布 PyPI（sourmash rocksdb 支持）。下一步是 gmlst/gapit parity。
 
 ## 2. 背景与问题
 
@@ -531,7 +531,7 @@ Schema：`gseek.run/1`。示例：
   "run_id": "01J...",
   "recipe_hash": "sha256:...",
   "created_at": "2026-10-22T13:00:00Z",
-  "gseek_version": "0.4.0",
+  "gseek_version": "0.5.0",
   "python_version": "3.12.11",
   "platform": "Linux-6.12-x86_64",
   "hostname": "compute-01",
@@ -577,7 +577,7 @@ Schema：`gseek.run/1`。示例：
 ```text
 sha256(canonical_json({
   "schema": "gseek.recipe/1",
-  "gseek_version": "0.4.0",
+  "gseek_version": "0.5.0",
   "backend": "minimap2",
   "adapter_version": "1",
   "params": {...},
@@ -789,7 +789,7 @@ class BlastAdapter:
 ```toml
 [project]
 name = "gseek"          # 见 15.1：原 gcore 名称冲突，2026-10-22 更名
-version = "0.4.0"
+version = "0.5.0"
 requires-python = ">=3.12"
 dependencies = []            # 核心零依赖
 [project.optional-dependencies]

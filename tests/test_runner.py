@@ -351,3 +351,30 @@ def test_external_reference_accepts_sketch_directory(fasta_pair, tmp_path: Path)
     assert result.references[0].path == str(reference.resolve())
     assert result.references[0].kind is InputKind.SKETCH
     assert result.index is None
+
+
+def test_external_reference_digest_skips_hashing(fasta_pair, tmp_path: Path, monkeypatch) -> None:
+    query, _target = fasta_pair
+    reference = tmp_path / "refs.msh"
+    reference.write_bytes(b"fake-msh")
+    calls = []
+    import gseek.provenance as provenance
+
+    monkeypatch.setattr(
+        provenance,
+        "sha256_file",
+        lambda path, **kwargs: calls.append(path) or "0" * 64,
+    )
+    result = run_distance(
+        DistanceRequest(
+            query=(query,),
+            reference=(reference,),
+            external_reference=True,
+            external_sha256="a" * 64,
+            external_size=8,
+        ),
+        adapter=FakeDistanceAdapter(),
+        store=IndexStore(tmp_path / "cache"),
+    )
+    assert result.references[0].sha256 == "a" * 64
+    assert reference not in calls

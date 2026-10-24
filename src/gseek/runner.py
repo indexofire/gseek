@@ -51,6 +51,7 @@ from gseek.model import (
 )
 from gseek.provenance import (
     alignment_result_hash,
+    directory_size,
     distance_result_hash,
     gseek_version,
     hostname,
@@ -321,9 +322,37 @@ def _prepare_targets(
     raw = request.target if isinstance(request, AlignRequest) else request.reference
     if isinstance(request, DistanceRequest) and request.external_reference:
         files = tuple(path.resolve() for path in raw)
+        if request.external_sha256 is not None and request.external_size is not None:
+            refs = tuple(
+                _external_ref(path, request.external_sha256, request.external_size)
+                for path in files
+            )
+            return files, refs
         return files, input_refs(files, kind=InputKind.SKETCH, compute_records=False)
     files = expand_fasta_paths(raw)
     return files, input_refs(files, compute_records=True)
+
+
+def _external_ref(path: Path, sha256: str, size: int) -> InputRef:
+    if path.is_dir():
+        actual_size = directory_size(path)
+    elif path.is_file():
+        actual_size = path.stat().st_size
+    else:
+        raise InputError(f"external reference not found: {path}", context={"path": str(path)})
+    if actual_size != size:
+        raise InputError(
+            f"external reference size mismatch: expected {size}, got {actual_size}",
+            context={"path": str(path), "expected": str(size), "actual": str(actual_size)},
+        )
+    return InputRef(
+        path=str(path),
+        size=size,
+        sha256=sha256,
+        kind=InputKind.SKETCH,
+        records=None,
+        compressed=False,
+    )
 
 
 def _prepare_queries(request: AlignRequest | DistanceRequest) -> tuple[InputRef, ...]:
@@ -529,6 +558,8 @@ def run_distance(
         timeout_s=request.timeout_s,
         index_policy=request.index_policy,
         external_reference=request.external_reference,
+        external_sha256=request.external_sha256,
+        external_size=request.external_size,
         work_dir=request.work_dir,
         keep_work=request.keep_work,
     )

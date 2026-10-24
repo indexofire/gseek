@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-24
+
+### Added
+
+- `external_sha256` / `external_size` on `DistanceRequest` and
+  `gseek.distance()`: callers can pass a pre-computed reference digest and
+  skip re-hashing large external databases. Replay reuses the digest recorded
+  in the manifest.
+- mash fast path: external reference + FASTA query + default sketch parameters
+  runs `mash dist <ref> <query.fa>` directly, avoiding an extra query sketch
+  subprocess.
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

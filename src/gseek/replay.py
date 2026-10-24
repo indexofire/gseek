@@ -126,6 +126,8 @@ def replay(
             params=params,
             threads=threads,
             external_reference=external_reference,
+            external_sha256=document.targets[0].sha256 if external_reference else None,
+            external_size=document.targets[0].size if external_reference else None,
             resolver=resolver,
             executor=executor,
             store=store,

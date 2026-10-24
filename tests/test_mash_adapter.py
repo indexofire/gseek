@@ -232,16 +232,14 @@ def test_plan_distance_external_reference_skips_reference_sketch(tmp_path: Path)
             query=(_query(tmp_path),),
             reference=(reference,),
             external_reference=True,
-            params={"k": 21, "sketch_size": 100},
         ),
         None,
         PlanContext(workspace=tmp_path / "work"),
     )
-    assert len(plan.commands) == 2
-    assert plan.commands[0].argv[:2] == ("mash", "sketch")
-    assert plan.commands[1].argv[:2] == ("mash", "dist")
-    assert plan.commands[1].argv[-2] == str(reference)
-    assert plan.commands[1].argv[-1].endswith("query.msh")
+    assert len(plan.commands) == 1
+    assert plan.commands[0].argv[:2] == ("mash", "dist")
+    assert plan.commands[0].argv[-2] == str(reference)
+    assert plan.commands[0].argv[-1] == str(_query(tmp_path).resolve())
 
 
 def test_plan_distance_reads_uses_error_filtering_flags(tmp_path: Path) -> None:
@@ -260,3 +258,21 @@ def test_plan_distance_reads_uses_error_filtering_flags(tmp_path: Path) -> None:
     assert sketch.argv[:2] == ("mash", "sketch")
     assert "-m" in sketch.argv and sketch.argv[sketch.argv.index("-m") + 1] == "2"
     assert "-r" in sketch.argv
+
+
+def test_plan_distance_external_nondefault_sketch_uses_query_sketch(tmp_path: Path) -> None:
+    reference = tmp_path / "refs.msh"
+    plan = MashAdapter().plan_distance(
+        DistanceRequest(
+            query=(_query(tmp_path),),
+            reference=(reference,),
+            external_reference=True,
+            params={"sketch_size": 100},
+        ),
+        None,
+        PlanContext(workspace=tmp_path / "work"),
+    )
+    assert [command.argv[:2] for command in plan.commands] == [
+        ("mash", "sketch"),
+        ("mash", "dist"),
+    ]
