@@ -13,7 +13,7 @@ from pathlib import Path
 def test_package_imports_as_gseek() -> None:
     import gseek
 
-    assert gseek.__version__ == "0.3.0"
+    assert gseek.__version__ == "0.3.1"
 
 
 def test_schema_namespaces_are_gseek() -> None:

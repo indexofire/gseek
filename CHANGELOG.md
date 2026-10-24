@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-24
+
+### Fixed
+
+- Refresh the PyPI README metadata to reflect that 0.3.x is published and to
+  install `gseek==0.3.1`. No package code or API changes.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added
