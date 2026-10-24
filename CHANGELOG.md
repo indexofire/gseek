@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-24
+
+### Added
+
+- skani external database directories. `gseek.distance(backend="skani",
+  external_reference=True)` accepts a pre-built `skani sketch -o db` directory
+  and runs `skani search -d <db> <query>`. Directory references reuse the
+  deterministic tree hash, manifest verify, and replay support.
+
 ## [0.3.1] - 2026-10-24
 
 ### Fixed

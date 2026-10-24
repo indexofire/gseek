@@ -111,14 +111,17 @@ class SkaniAdapter(BaseAdapter):
         ctx: PlanContext,
     ) -> AlignPlan:
         _validate_request(request)
-        if request.external_reference:
+        if request.external_reference and not request.reference[0].is_dir():
             raise UnsupportedFeatureError(
-                "skani external database directories are not supported yet; "
-                "point reference= at FASTA files or omit external_reference"
+                "skani external_reference must point at a skani database directory",
+                context={"reference": str(request.reference[0])},
             )
         params = _validate_distance_params(request.params)
         argv: list[str] = ["skani"]
-        if index is not None:
+        if request.external_reference:
+            argv.extend(["search", "-d", str(request.reference[0].resolve())])
+            inputs = [str(path.resolve()) for path in request.query]
+        elif index is not None:
             index_dir = (ctx.index_dir or ctx.workspace).resolve()
             argv.extend(["search", "-d", str(index_dir / index.entry)])
             inputs = [str(path.resolve()) for path in request.query]
@@ -144,7 +147,11 @@ class SkaniAdapter(BaseAdapter):
             commands=(
                 CommandPlan(
                     argv=tuple(argv),
-                    label="skani search" if index is not None else "skani dist",
+                    label=(
+                        "skani search"
+                        if request.external_reference or index is not None
+                        else "skani dist"
+                    ),
                     timeout_s=request.timeout_s,
                 ),
             ),

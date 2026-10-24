@@ -144,3 +144,36 @@ def test_sourmash_external_rocksdb_directory_and_replay(tmp_path: Path) -> None:
 
     outcome = gseek.replay(manifest, check=True, store=store)
     assert outcome.matches is True
+
+
+@pytest.mark.skipif(shutil.which("skani") is None, reason="skani not installed")
+def test_skani_external_database_directory_and_replay(tmp_path: Path) -> None:
+    query, target = _fixture(tmp_path)
+    reference = tmp_path / "panel.sketch"
+    subprocess.run(
+        ["skani", "sketch", "-o", str(reference), str(target)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    store = IndexStore(tmp_path / "cache")
+    manifest = tmp_path / "skani.json"
+
+    result = gseek.distance(
+        backend="skani",
+        query=query,
+        reference=reference,
+        external_reference=True,
+        threads=2,
+        store=store,
+        manifest=manifest,
+    )
+    assert result.records
+    assert result.index is None
+    assert result.references[0].kind is InputKind.SKETCH
+    assert result.references[0].path == str(reference.resolve())
+    assert result.records[0].ani is not None
+    assert gseek.verify(manifest) == ()
+
+    outcome = gseek.replay(manifest, check=True, store=store)
+    assert outcome.matches is True

@@ -184,3 +184,22 @@ def test_index_and_semantic_params() -> None:
         "compression_factor": 200
     }
     assert adapter.semantic_params({"min_af": 5, "threads": 4}) == {"min_af": 5}
+
+
+def test_plan_distance_with_external_database_directory(tmp_path: Path) -> None:
+    database = tmp_path / "panel.sketch"
+    database.mkdir()
+    plan = SkaniAdapter().plan_distance(
+        DistanceRequest(
+            query=(_query(tmp_path),),
+            reference=(database,),
+            external_reference=True,
+            threads=2,
+        ),
+        None,
+        PlanContext(workspace=tmp_path / "work"),
+    )
+    argv = plan.commands[0].argv
+    assert argv[:4] == ("skani", "search", "-d", str(database.resolve()))
+    assert argv[argv.index("-t") + 1] == "2"
+    assert argv[-1] == str(_query(tmp_path))
