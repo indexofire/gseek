@@ -56,8 +56,41 @@ def align(
 ) -> AlignmentResult:
     """Align one query (or read pair) against a target set.
 
-    This is the main entry point for gside/gapit/gmlst. The adapter is chosen
-    explicitly via ``backend`` or unambiguously by capabilities.
+    This is the main entry point for consumers such as gside/gapit/gmlst.
+    The adapter is chosen explicitly via ``backend`` or unambiguously from the
+    request capabilities.
+
+    Args:
+        query: One FASTA/FASTQ path, or a sequence of paths. Two FASTQ paths
+            with ``paired=True`` are treated as mates.
+        target: One or more target FASTA paths.
+        backend: Registered backend name, for example ``"blast"`` or
+            ``"minimap2"``. Mutually exclusive with ``adapter``.
+        adapter: Explicit adapter instance, useful for plugins and tests.
+        query_kind: Override input detection (``fasta``/``fastq``).
+        paired: Treat two query paths as paired-end reads.
+        params: Adapter-specific parameters. See the adapter matrix.
+        preset: Shorthand for ``params["preset"]``.
+        threads: Tool worker threads (``>= 1``).
+        timeout_s: Per-command timeout; ``None`` uses the adapter default.
+        index: ``auto`` reuses or builds a content-addressed target index,
+            ``reuse`` requires a cache hit, ``rebuild`` replaces it, and
+            ``none`` runs in subject mode where supported.
+        target_filter: Optional target IDs to keep after parsing.
+        work_dir: Parent directory for temporary run workspaces.
+        keep_work: Keep the workspace for debugging.
+        manifest: Write a ``gseek.run/1`` manifest for ``verify``/``replay``.
+        resolver: Custom tool resolver.
+        executor: Custom subprocess executor.
+        store: Custom index store.
+
+    Returns:
+        An :class:`~gseek.AlignmentResult` with normalized records, stats,
+        references, and the optional manifest.
+
+    Raises:
+        GseekError: Base class for typed failures such as missing tools,
+            unsupported capabilities, parse errors, or index failures.
     """
     merged_params: dict[str, JsonValue] = dict(params or {})
     if preset is not None:
@@ -105,7 +138,36 @@ def distance(
     executor: Executor | None = None,
     store: IndexStore | None = None,
 ) -> DistanceResult:
-    """Compare queries against sketch/distance references."""
+    """Compare queries against sketch/distance references.
+
+    Args:
+        query: One or more FASTA/FASTQ query paths.
+        reference: Reference FASTA paths, or one pre-built distance artifact
+            when ``external_reference=True``.
+        backend: Registered backend name (``mash``, ``sourmash``, ``skani``).
+        adapter: Explicit distance adapter instance.
+        query_kind: Override input detection.
+        params: Adapter-specific parameters (for example mash ``k`` or
+            sourmash ``scaled``/``mode``).
+        threads: Tool worker threads.
+        timeout_s: Per-command timeout; ``None`` uses the adapter default.
+        index: Content-addressed index policy for FASTA references.
+        external_reference: Treat ``reference`` as a pre-built ``.msh``,
+            ``.sig``, or ``.zip`` artifact. No index is built or referenced.
+        work_dir: Parent directory for temporary run workspaces.
+        keep_work: Keep the workspace for debugging.
+        manifest: Write a ``gseek.run/1`` manifest for ``verify``/``replay``.
+        resolver: Custom tool resolver.
+        executor: Custom subprocess executor.
+        store: Custom index store.
+
+    Returns:
+        A :class:`~gseek.DistanceResult` with normalized distance records.
+
+    Raises:
+        GseekError: Base class for typed failures such as missing tools,
+            unsupported capabilities, parse errors, or index failures.
+    """
     request = DistanceRequest(
         query=_as_paths(query),
         reference=_as_paths(reference),

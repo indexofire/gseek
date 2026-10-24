@@ -25,6 +25,12 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="gseek", description="Unified DNA alignment infrastructure"
     )
     parser.add_argument("--version", action="version", version=f"gseek {__version__}")
+    parser.add_argument(
+        "--error-format",
+        choices=("json", "text"),
+        default="json",
+        help="error output format (default: json)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("version", help="print the gseek version")
@@ -93,6 +99,12 @@ def _build_parser() -> argparse.ArgumentParser:
         command.add_argument("--output", "-o", type=Path, default=None)
         if not needs_ref:
             command.add_argument("--paired", action="store_true")
+        else:
+            command.add_argument(
+                "--external-reference",
+                action="store_true",
+                help="treat --reference as a pre-built .msh/.sig/.zip artifact",
+            )
         command.add_argument(
             "--query-kind", choices=[kind.value for kind in InputKind], default=None
         )
@@ -120,6 +132,18 @@ def _parse_params(items: Sequence[str]) -> dict[str, JsonValue]:
 
 def _print_json(value: Any) -> None:
     print(json.dumps(to_jsonable(value), indent=2, ensure_ascii=False, sort_keys=False))
+
+
+def _print_error(exc: BaseException, error_format: str) -> None:
+    if error_format != "text":
+        print(render_error(exc), file=sys.stderr)
+        return
+    if isinstance(exc, GseekError):
+        print(f"gseek: {exc.message}", file=sys.stderr)
+        if exc.hint:
+            print(f"hint: {exc.hint}", file=sys.stderr)
+        return
+    print(f"gseek: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def _cmd_backends(args: argparse.Namespace) -> int:
@@ -268,7 +292,11 @@ def _cmd_run(args: argparse.Namespace, *, distance_mode: bool) -> int:
         "query_kind": InputKind(args.query_kind) if args.query_kind else None,
     }
     if distance_mode:
-        result = distance(reference=tuple(args.target), **common)
+        result = distance(
+            reference=tuple(args.target),
+            external_reference=args.external_reference,
+            **common,
+        )
     else:
         result = align(target=tuple(args.target), paired=args.paired, **common)
     document = result.to_dict(include_manifest=False)
@@ -303,13 +331,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_run(args, distance_mode=True)
         raise UsageError(f"unknown command: {args.command}")
     except GseekError as exc:
-        print(render_error(exc), file=sys.stderr)
+        _print_error(exc, args.error_format)
         return exc.exit_code
     except KeyboardInterrupt:  # pragma: no cover - interactive
         print("interrupted", file=sys.stderr)
         return 130
     except Exception as exc:
-        print(render_error(exc), file=sys.stderr)
+        _print_error(exc, args.error_format)
         return 1
 
 

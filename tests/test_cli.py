@@ -56,3 +56,66 @@ def test_manifest_verify(fasta_pair, tmp_path: Path, capsys) -> None:
     query.write_text(">q1\nTTTT\n", encoding="utf-8")
     assert main(["manifest", "verify", str(manifest_path)]) == 4
     assert "HASH_MISMATCH" in capsys.readouterr().out
+
+
+def _bad_param_argv() -> list[str]:
+    return [
+        "align",
+        "--backend",
+        "blast",
+        "--query",
+        "q.fa",
+        "--target",
+        "t.fa",
+        "--param",
+        "bad",
+    ]
+
+
+def test_cli_error_defaults_to_json(capsys) -> None:
+    assert main(_bad_param_argv()) == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["schema"] == "gseek.error/1"
+    assert payload["code"] == "USAGE_ERROR"
+
+
+def test_cli_error_format_text(capsys) -> None:
+    assert main(["--error-format", "text", *_bad_param_argv()]) == 2
+    err = capsys.readouterr().err
+    assert "KEY=VALUE" in err
+    assert "hint:" in err or "gseek:" in err
+
+
+def test_cli_error_format_json_is_explicit(capsys) -> None:
+    assert main(["--error-format", "json", *_bad_param_argv()]) == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["code"] == "USAGE_ERROR"
+
+
+def test_distance_external_reference_flag(monkeypatch, capsys) -> None:
+    from types import SimpleNamespace
+
+    import gseek.cli as cli
+
+    captured = {}
+
+    def fake_distance(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(to_dict=lambda **_: {"schema": "gseek.distance/1"})
+
+    monkeypatch.setattr(cli, "distance", fake_distance)
+    rc = cli.main(
+        [
+            "distance",
+            "--backend",
+            "mash",
+            "--query",
+            "q.fna",
+            "--reference",
+            "refs.msh",
+            "--external-reference",
+        ]
+    )
+    assert rc == 0
+    assert captured["external_reference"] is True
+    assert json.loads(capsys.readouterr().out)["schema"] == "gseek.distance/1"
