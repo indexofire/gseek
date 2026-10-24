@@ -1,7 +1,8 @@
 # Releasing gseek
 
-This checklist is for a maintainer publishing a wheel/sdist to PyPI. It assumes
-a clean git worktree and a PyPI API token. Never commit or paste the token.
+This checklist is for a maintainer publishing a wheel/sdist to PyPI. It supports
+GitHub Actions trusted publishing (recommended) or a manual API token. Never
+commit or paste a token.
 
 ## 0. Before you start
 
@@ -68,6 +69,44 @@ Also install the sdist in a second venv. Check `py.typed`, `LICENSE`, `METADATA`
 (`Name`, `Version`, `Requires-Python`, extras).
 
 ## 5. Upload
+
+### Recommended: GitHub Actions trusted publishing
+
+The repository ships `.github/workflows/release.yml`. It is triggered by a
+published GitHub Release, builds and checks the distributions, verifies the tag
+against `gseek.__version__`, and publishes through OIDC. No PyPI token is stored
+in GitHub.
+
+Configure a PyPI **pending publisher** at
+<https://pypi.org/manage/account/publishing/> with exactly:
+
+| PyPI field | Value |
+| --- | --- |
+| PyPI Project Name | `gseek` |
+| Owner | `indexofire` |
+| Repository name | `gseek` |
+| Workflow name | `release.yml` |
+| Environment name | `pypi` |
+
+Then:
+
+1. Push `.github/workflows/release.yml` to the default branch.
+2. Ensure `main` CI is green.
+3. Create and push the release tag, then publish a GitHub Release:
+
+   ```bash
+   git tag -a vX.Y.Z -m "gseek X.Y.Z"
+   git push origin main --tags
+   gh release create vX.Y.Z --title "gseek X.Y.Z" --generate-notes
+   ```
+
+4. The `release` workflow builds, runs `twine check`, verifies the tag, and
+   publishes to PyPI using the `pypi` environment.
+
+If the GitHub repository uses an environment protection rule, approve the
+`pypi` deployment when prompted.
+
+### Manual fallback (API token)
 
 Use a token scoped to the project once it exists; keep it out of shell history:
 
