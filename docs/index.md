@@ -3,7 +3,7 @@
 `gseek` 是一层稳定、可复现的 DNA 比对 API，封装 BLAST+、minimap2、MUMmer4、
 KMA、BWA、mash、sourmash 与 skani。适配器只做无损规范化；业务结论留给调用方。
 
-> 当前版本 **0.2.0（alpha）**。PyPI 发布准备中；在此之前请从 wheel 或源码安装。
+> 当前版本 **0.2.0（alpha）**，已发布 PyPI：`pip install gseek==0.2.0`。
 
 ## 从这里开始
 

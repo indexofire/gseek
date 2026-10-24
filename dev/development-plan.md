@@ -39,7 +39,7 @@
 | 测试 | 316 个单元/契约 + 34 个集成；覆盖率 88%；ruff + pyright 全绿 |
 
 当前包可以被 `import gseek`、安装，并已通过 8 个后端跑通真实工具，已实现 `replay`；
-0.2.0 构建物已准备。下一步是 gmlst/gapit parity 与 PyPI 发布。
+0.2.0 已发布 PyPI。下一步是 gmlst/gapit parity。
 
 ## 2. 背景与问题
 

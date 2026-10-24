@@ -17,7 +17,7 @@ conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 
 ## 2. 安装
 
-PyPI 发布准备中（0.2.0 尚未上传）。当前使用本地 wheel 或源码：
+PyPI 已发布 0.2.0。也可以使用本地 wheel 或源码：
 
 ```bash
 # 本地 wheel（推荐验证发布物）

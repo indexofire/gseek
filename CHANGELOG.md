@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **0.2.0 release preparation: first PyPI release target.**
+- **First PyPI release.**
 - `gseek.distance(..., external_reference=True)` for pre-built distance
   artifacts: mash `.msh` and sourmash `.sig`/`.zip` are consumed directly,
   without index construction or reference re-sketching. External artifacts are
