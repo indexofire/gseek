@@ -1,0 +1,2 @@
+Ref_file	Query_file	ANI	Align_fraction_ref	Align_fraction_query	Ref_name	Query_name
+skani_target.fa	skani_query.fa	100.00	98.76	100.00	skani_t	skani_q

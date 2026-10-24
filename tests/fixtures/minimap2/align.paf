@@ -1,0 +1,2 @@
+q1	300	0	300	+	t1	600	100	400	300	300	60	NM:i:0	ms:i:300	AS:i:300	nn:i:0	tp:A:P	cm:i:28	s1:i:282	s2:i:0	de:f:0	rl:i:0	cg:Z:300M	cs:Z::300
+q2	300	0	300	-	t2	600	100	400	300	300	60	NM:i:0	ms:i:300	AS:i:300	nn:i:0	tp:A:P	cm:i:30	s1:i:282	s2:i:0	de:f:0	rl:i:0	cg:Z:300M	cs:Z::300

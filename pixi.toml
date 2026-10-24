@@ -1,0 +1,27 @@
+[workspace]
+authors = ["indexofire <indexofire@gmail.com>"]
+channels = ["conda-forge"]
+name = "gseek"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+# The package uses a src/ layout; PYTHONPATH keeps the tasks working without
+# requiring an editable install inside the pixi environment.
+test = "PYTHONPATH=src pytest"
+test-cov = "PYTHONPATH=src pytest --cov=gseek --cov-report=term-missing"
+lint = "ruff check . && ruff format --check src tests"
+format = "ruff format src tests"
+typecheck = "PYTHONPATH=src pyright"
+check = { depends-on = ["lint", "typecheck", "test"] }
+pre-commit = "pre-commit run --all-files"
+
+[dependencies]
+python = "3.12.*"
+pytest = ">=8.0"
+pytest-cov = ">=5.0"
+ruff = ">=0.6"
+hypothesis = ">=6.100"
+pyright = ">=1.1"
+nodejs = ">=20"
+pre-commit = ">=3.7"

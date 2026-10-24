@@ -1,0 +1,48 @@
+"""Documentation contracts: links resolve and the API reference is discoverable."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+_IGNORED_PARTS = {".pixi", ".scratch", ".git", "dist", "build", "site"}
+_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+
+def _markdown_files() -> list[Path]:
+    return [path for path in ROOT.rglob("*.md") if not (_IGNORED_PARTS & set(path.parts))]
+
+
+def test_markdown_relative_links_resolve() -> None:
+    broken: list[str] = []
+    for path in _markdown_files():
+        text = path.read_text(encoding="utf-8")
+        for link in _LINK_RE.findall(text):
+            target = link.split("#", 1)[0]
+            if not target or target.startswith(("http://", "https://", "mailto:")):
+                continue
+            if not (path.parent / target).resolve().exists():
+                broken.append(f"{path.relative_to(ROOT)} -> {link}")
+    assert not broken, "broken markdown links:\n" + "\n".join(broken)
+
+
+def test_api_reference_is_linked_and_complete() -> None:
+    api = ROOT / "docs" / "api.md"
+    assert api.is_file()
+    text = api.read_text(encoding="utf-8")
+    for heading in (
+        "## 4. 公共 API",
+        "## 5. 结果模型",
+        "## 6. 适配器 API",
+        "## 7. 执行层",
+        "## 8. 索引层",
+        "## 11. 错误模型",
+        "## 12. CLI",
+    ):
+        assert heading in text, f"missing API section: {heading}"
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "docs/api.md" in readme
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "docs/api.md" in agents

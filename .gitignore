@@ -1,0 +1,58 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+pip-wheel-metadata/
+.uv-cache/
+.uv/
+
+# Tool caches and local scratch
+.scratch/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.mypy_cache/
+.hypothesis/
+.benchmarks/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+
+# Local environment/secrets
+.env
+.env.*
+!.env.example
+.direnv/
+AGENTS.local.md
+*.log
+*.prof
+
+# Docs
+site/
+docs-site/
+_build/
+
+# Editors
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+.DS_Store
+
+# Patch leftovers
+*.orig
+*.rej

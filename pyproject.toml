@@ -1,0 +1,137 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gseek"
+version = "0.2.0"
+description = "Unified, reproducible DNA alignment adapters for BLAST+, minimap2, MUMmer, KMA, BWA and MinHash tools"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "gseek contributors" }]
+keywords = [
+  "bioinformatics",
+  "dna-alignment",
+  "blast",
+  "minimap2",
+  "mummer",
+  "kma",
+  "bwa",
+  "minhash",
+  "reproducibility",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "pyright>=1.1",
+  "hypothesis>=6.100",
+  "pre-commit>=3.7",
+]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+]
+
+[project.scripts]
+gseek = "gseek.cli:main"
+
+[project.entry-points."gseek.adapters"]
+# Third-party adapters register here. Built-in adapters are imported lazily
+# from gseek.adapters.BUILTIN_MODULES so the core package stays dependency-free.
+
+[project.urls]
+Documentation = "https://github.com/indexofire/gseek/blob/main/docs/api.md"
+Source = "https://github.com/indexofire/gseek"
+Issues = "https://github.com/indexofire/gseek/issues"
+Changelog = "https://github.com/indexofire/gseek/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gseek"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/docs",
+  "/dev",
+  "/README.md",
+  "/LICENSE",
+  "/CHANGELOG.md",
+  "/CONTRIBUTING.md",
+  "/AGENTS.md",
+  "/.editorconfig",
+  "/.pre-commit-config.yaml",
+  "/.python-version",
+  "/pyproject.toml",
+]
+
+[tool.ruff]
+src = ["src", "tests"]
+target-version = "py312"
+line-length = 100
+exclude = [".pixi", ".scratch", "dist", "build", "site"]
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "RET", "RUF"]
+ignore = [
+  # Long docstrings are common in this project; wrapping them hurts tables.
+  "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = [".pixi", ".scratch", "dist", "build", "site"]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+  "integration: requires external alignment binaries",
+  "slow: long-running tests",
+]
+
+[tool.coverage.run]
+source = ["gseek"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "\\.\\.\\.",
+]
