@@ -3,7 +3,8 @@
 > 版本：0.2.0（alpha）  
 > 适用范围：Python ≥ 3.12  
 > 源码基准：`src/gseek/`  
-> 相关文档：[开发计划](../dev/development-plan.md) · [适配器矩阵](../dev/adapter-matrix.md) · [兼容性迁移](../dev/compatibility.md) · [AGENTS.md](../AGENTS.md)
+> 新用户请先读 [Quickstart](quickstart.md) 与 [CLI](cli.md)。  
+> 相关文档：[错误模型](errors.md) · [开发计划](../dev/development-plan.md) · [适配器矩阵](../dev/adapter-matrix.md) · [兼容性迁移](../dev/compatibility.md) · [AGENTS.md](../AGENTS.md)
 
 ## 0. 当前状态
 
@@ -1281,6 +1282,9 @@ count_distinct_occurrences(records, *, query_id, target_id) -> int
 
 ## 11. 错误模型
 
+完整的异常/退出码表与处理建议见 [错误模型](errors.md)。
+
+
 所有错误继承 `gseek.GseekError`，带 `code`、`exit_code`、`context`、`hint`。
 
 ### 11.1 错误表
@@ -1328,8 +1332,11 @@ CLI 捕获 `GseekError` 后输出一行 envelope 到 stderr，并以 `exit_code`
 
 ## 12. CLI
 
+面向用户的命令示例、JSON 约定与自动化注意事项见 [CLI](cli.md)。
+
 ```bash
 gseek --version
+gseek --error-format {json,text} <command> ...
 gseek backends [--json]
 gseek doctor [--json]
 gseek index list [--json]
@@ -1356,6 +1363,7 @@ gseek distance --backend NAME --query Q --reference R [options]
 | `--output` / `-o` | 结果 JSON 文件；缺省 stdout |
 | `--paired` | 仅 `align`；双端 |
 | `--query-kind` | `fasta`/`fastq` |
+| `--external-reference` | 仅 `distance`；`--reference` 是预构建 `.msh`/`.sig`/`.zip` |
 | `--keep-work` | 保留临时目录 |
 
 示例：

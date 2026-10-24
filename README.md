@@ -4,7 +4,7 @@
 
 `gseek` 把 BLAST+、minimap2、MUMmer、KMA、BWA、mash/sourmash 等外部 DNA 比对工具封装成一层稳定 API：统一请求、统一结果模型、内容寻址索引、可复现的 run manifest。它面向 [gside](https://github.com/indexofire/gside)、[gapit](https://github.com/indexofire/gapit)、[gmlst](https://github.com/indexofire/gmlst) 这类“需要反复做 DNA 比对”的基因组工具，避免每个项目重复实现命令拼装、输出解析、缓存和版本记录。
 
-> **状态：M0 基座 + M1–M4 适配器（0.2.0 alpha）。** BLAST+（核酸/蛋白）、minimap2、KMA、MUMmer4、BWA、mash、sourmash、skani 已可用；replay 已落地。真实输出 golden fixtures 与 8 后端 replay 矩阵已建立；剩余工作是消费者代码迁移与发布。
+> **状态：M0 基座 + M1–M4 适配器（0.2.0 alpha）。** BLAST+（核酸/蛋白）、minimap2、KMA、MUMmer4、BWA、mash、sourmash、skani 已可用；replay 已落地。真实输出 golden fixtures、8 后端 replay 矩阵与 gside 迁移分支已验证；剩余工作是 gmlst/gapit 迁移与 PyPI 发布。
 
 ### 当前进度
 
@@ -23,7 +23,7 @@
 - [x] M3：BWA（SAM）、mash（sketch/dist/screen）、sourmash（sketch/search）；真实工具集成测试通过。
 - [x] M4：BLAST 蛋白任务（blastp/blastx/tblastn/tblastx）、sourmash gather、skani ANI、manifest replay。
 - [x] 真实工具 golden fixtures、gside/gapit/gmlst 字段 parity、8 后端 replay 矩阵。
-- [x] 306 个单元/契约测试 + 34 个集成测试（无工具时 skip）；覆盖率 88%；ruff + pyright 全绿。
+- [x] 316 个单元/契约测试 + 34 个集成测试（无工具时 skip）；覆盖率 88%；ruff + pyright 全绿。
 
 ## 为什么需要 gseek
 
@@ -43,17 +43,23 @@
 ## 安装
 
 ```bash
-# 推荐使用 pixi（仓库自带环境）
-pixi install
+# 0.2.0 发布后（当前尚未上传 PyPI）
+pip install gseek==0.2.0
 
-# 或 pip（分发名与导入名均为 gseek）
-pip install gseek
+# 当前可用：本地 wheel
+uv pip install dist/gseek-0.2.0-py3-none-any.whl
 
-# 开发模式
+# 或源码开发模式
 pip install -e ".[dev]"
+
+# 仓库环境
+pixi install
 ```
 
-> **命名说明**：项目原名 `gcore`，因 PyPI 上的 `gcore` 已被 [Gcore Python API](https://pypi.org/project/gcore/) 占用，于 2026-10-22 更名为 **gseek**。`gseek` 当前在 PyPI 可用，分发名、导入名和 CLI 均为 `gseek`。决策记录见 [ADR-0002](dev/decisions/0002-project-rename.md)。
+> **命名说明**：项目原名 `gcore`，因 PyPI 上的 `gcore` 已被 [Gcore Python API](https://pypi.org/project/gcore/) 占用，于 2026-10-22 更名为 **gseek**。PyPI 分发名、导入名和 CLI 均为 `gseek`；0.2.0 正在准备发布。决策记录见 [ADR-0002](dev/decisions/0002-project-rename.md)。
+>
+> **稳定性**：0.2.0 仍是 alpha；1.0 前公共 API 可能调整。生产集成请钉住
+> `gseek==0.2.0`，并通过 `GSIDE_ENGINE`/feature flag 保留旧路径。
 
 外部工具不随包安装，按需通过 conda/pixi/系统包管理器安装：
 
@@ -96,6 +102,32 @@ gseek.replay(Path("run.manifest.json"), check=True)
 gseek.verify(Path("run.manifest.json"))
 ```
 
+## CLI 快速开始
+
+```bash
+# 先确认工具是否齐全；缺失时返回 1
+gseek doctor
+
+# 比对，并写出可 verify/replay 的 manifest
+gseek align \
+  --backend minimap2 \
+  --query sample.fna \
+  --target scheme/alleles.fna \
+  --preset asm5 \
+  --threads 8 \
+  --manifest runs/sample.manifest.json \
+  -o runs/sample.json
+
+# 校验输入/工具/结果哈希
+gseek verify runs/sample.manifest.json
+
+# 重新规划并校验 result_hash；不会执行 manifest 里的旧 argv
+gseek replay runs/sample.manifest.json --check --json
+```
+
+CLI 约定：结果写 stdout，错误写 stderr，默认错误是 `gseek.error/1` JSON；
+`--error-format text` 可切换人类可读格式。详见 [CLI](docs/cli.md)。
+
 ## 架构
 
 ```text
@@ -128,7 +160,11 @@ gseek.verify(Path("run.manifest.json"))
 
 ## 文档
 
-- [API 参考](docs/api.md)：公共 API、模型、适配器协议、执行/索引/可复现层、错误与 CLI。
+- [文档首页](docs/index.md)：按角色导航。
+- [Quickstart](docs/quickstart.md)：安装、第一个 CLI/Python 调用、manifest/replay。
+- [CLI](docs/cli.md)：子命令、JSON 输出、退出码、自动化约定。
+- [错误模型](docs/errors.md)：异常层级、`code`/`exit_code`、处理建议。
+- [API 参考](docs/api.md)：公共 API、模型、适配器协议、执行/索引/可复现层、schema。
 - [开发计划](dev/development-plan.md)：目标、架构、接口、里程碑、风险、开放决策。
 - [三工具调研](dev/research.md)：gside/gapit/gmlst 的代码级对比与重复点。
 - [适配器矩阵](dev/adapter-matrix.md)：六类工具的命令、索引、解析、版本和坑。
@@ -138,6 +174,7 @@ gseek.verify(Path("run.manifest.json"))
 - [AGENTS.md](AGENTS.md)：TDD、架构边界、验证命令（开发者/agent 必读）。
 - [CONTRIBUTING.md](CONTRIBUTING.md)：贡献流程与测试分层。
 - [CHANGELOG.md](CHANGELOG.md)：版本变更记录。
+- [发布清单](dev/releasing.md)：版本、构建、PyPI 上传与验证。
 
 ## 开发
 

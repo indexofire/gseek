@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- **First PyPI release.**
+- **0.2.0 release preparation: first PyPI release target.**
 - `gseek.distance(..., external_reference=True)` for pre-built distance
   artifacts: mash `.msh` and sourmash `.sig`/`.zip` are consumed directly,
   without index construction or reference re-sketching. External artifacts are
@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format follows
   error-filtered FASTQ distance.
 - sourmash gather/search parse `query_name` per row and expose
   `reference_name`, `reference_md5`, and `f_unique_weighted` tags.
+- `gseek distance --external-reference` exposes the pre-built-artifact path in
+  the CLI.
+- `gseek --error-format {json,text}`; JSON remains the default for automation,
+  text is available for humans.
+- User-facing docs: `docs/index.md`, `docs/quickstart.md`, `docs/cli.md`,
+  `docs/errors.md`, plus a relative-link regression test.
 - `AGENTS.md`: mandatory TDD workflow, architecture boundaries, MUMmer4 policy.
 - `CONTRIBUTING.md`, `CHANGELOG.md`, `.editorconfig`, `.pre-commit-config.yaml`.
 - ADR-0001: target MUMmer **4.x**, not MUMmer3.
