@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from gseek.capabilities import ToolRequirement
-from gseek.errors import ExecutionError, ToolNotFoundError, ToolVersionError
+from gseek.errors import ExecutionError, InputError, ToolNotFoundError, ToolVersionError
 from gseek.execution import (
     CommandPlan,
     Executor,
@@ -26,6 +26,37 @@ def _fake_tool(path: Path, version: str) -> Path:
     path.write_text(f"#!/bin/sh\necho 'fake-tool {version}'\n", encoding="utf-8")
     path.chmod(0o755)
     return path
+
+
+def test_run_kills_child_when_communicate_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Any non-timeout exception from communicate() (decode errors, interrupts)
+    # must still reap the child: start_new_session orphans it otherwise.
+    import subprocess
+
+    created: list[subprocess.Popen[str]] = []
+
+    def boom(self: subprocess.Popen[str], *args: object, **kwargs: object) -> None:
+        created.append(self)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", boom)
+
+    killed: list[subprocess.Popen[str]] = []
+    real_kill = Executor._kill
+
+    def record_kill(process: subprocess.Popen[str]) -> None:
+        killed.append(process)
+        real_kill(process)
+
+    monkeypatch.setattr(Executor, "_kill", staticmethod(record_kill))
+
+    executor = Executor()
+    plan = CommandPlan(argv=_python("import time; time.sleep(30)"), label="orphan")
+    with pytest.raises(RuntimeError, match="boom"):
+        executor.run(plan)
+    assert created, "child was never started"
+    assert killed and killed[0] is created[0], "child was not killed on failure"
+    assert created[0].poll() is not None, "child was not reaped on failure"
 
 
 def test_probe_cache_respects_min_version(tmp_path: Path) -> None:
@@ -204,5 +235,88 @@ def test_workspace_respects_tmpdir(monkeypatch, tmp_path: Path) -> None:
     workspace = create_workspace(prefix="gseek-test-")
     try:
         assert workspace.root.parent == tmp_path / "tmp"
+    finally:
+        workspace.cleanup()
+
+
+def test_run_decodes_invalid_utf8_stderr_without_crashing() -> None:
+    # Tools can emit non-UTF-8 bytes (locale, binary garbage). The parent must
+    # decode with errors="replace" instead of raising UnicodeDecodeError (and,
+    # worse, leaking the child).
+    code = "import sys; sys.stderr.buffer.write(b'ok \\xff\\xfe broken'); sys.stderr.flush()"
+    executor = Executor()
+    result = executor.run(CommandPlan(argv=_python(code), label="bad-utf8"))
+    assert result.returncode == 0
+    assert "broken" in result.stderr
+
+
+def test_stream_rejects_stdin_without_reading_the_file() -> None:
+    # The stdin rejection must happen before _prepare() slurps the file: a
+    # missing stdin path is a usage error, not a read failure.
+    executor = Executor()
+    plan = CommandPlan(argv=_python("pass"), stdin=Path("/nonexistent/stdin.txt"))
+    with pytest.raises(InputError, match="cannot use stdin"), executor.stream(plan):
+        pass
+
+
+def test_stream_failure_before_start_still_reaps_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    # If stderr parent creation fails between Popen and start(), the child
+    # must still be killed and reaped (not orphaned with full pipes).
+    import subprocess
+
+    created: list[subprocess.Popen[str]] = []
+
+    class RecordingPopen(subprocess.Popen):  # type: ignore[type-arg]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+            created.append(self)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "Popen", RecordingPopen)
+
+    blocker = Path("/tmp/opencode/gseek-exec-blocker")
+    blocker.write_text("i am a file", encoding="utf-8")
+    bad_stderr = blocker / "sub" / "x.err"
+
+    executor = Executor()
+    plan = CommandPlan(
+        argv=_python("import time; time.sleep(30)"),
+        label="mkdir-window",
+        stderr=bad_stderr,
+    )
+    with pytest.raises(OSError), executor.stream(plan):
+        pass
+    assert created, "child was never started"
+    assert created[0].poll() is not None, "child was orphaned by cleanup failure"
+
+
+def test_kill_suppresses_permission_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The cleanup path must never mask the original failure: killpg and kill
+    # raising PermissionError (foreign process, seccomp) must be swallowed.
+    import os
+
+    def denied(*args: object, **kwargs: object) -> None:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(os, "killpg", denied)
+
+    class FakeProcess:
+        pid = 12345
+
+        def kill(self) -> None:
+            raise PermissionError("denied")
+
+    # Must not raise.
+    Executor._kill(FakeProcess())  # type: ignore[arg-type]
+
+
+def test_workspace_path_rejects_escape(tmp_path: Path) -> None:
+    workspace = create_workspace(parent=tmp_path)
+    try:
+        with pytest.raises(InputError):
+            workspace.path("/etc/passwd")
+        with pytest.raises(InputError):
+            workspace.path("..", "escape.txt")
+        inside = workspace.path("sub", "out.tsv")
+        assert str(inside).startswith(str(workspace.root))
     finally:
         workspace.cleanup()

@@ -306,3 +306,44 @@ def test_probe_reports_missing_show_coords() -> None:
 
     with pytest.raises(ToolNotFoundError):
         MummerAdapter().probe(cast(ToolResolver, _FakeResolver(show=False)), strict=True)
+
+
+def test_probe_classifies_missing_vs_broken_nucmer() -> None:
+    # The failure type must come from structure (path present?), not from
+    # sniffing words like "version" in an error message.
+    from gseek.adapters.mummer import MummerAdapter
+    from gseek.errors import ToolNotFoundError, ToolVersionError
+    from gseek.execution import ToolProbe, ToolResolver
+
+    class FakeResolver(ToolResolver):
+        def __init__(self, nucmer: ToolProbe) -> None:
+            super().__init__()
+            self._nucmer = nucmer
+
+        def probe(self, requirement, *, strict: bool = True):  # type: ignore[no-untyped-def]
+            if requirement.binary == "nucmer":
+                return self._nucmer
+            return super().probe(requirement, strict=strict)
+
+        def which(self, binary: str):
+            from pathlib import Path
+
+            return Path("/usr/bin/show-coords") if binary == "show-coords" else None
+
+    found_but_broken = ToolProbe(
+        name="nucmer",
+        path=Path("/usr/bin/nucmer"),
+        version="",
+        ok=False,
+        error="command timed out after 10s",
+        role="aligner",
+    )
+    # The binary exists: this is a broken/old tool, not a missing one.
+    with pytest.raises(ToolVersionError):
+        MummerAdapter().probe(FakeResolver(found_but_broken), strict=True)
+
+    missing = ToolProbe(
+        name="nucmer", path=None, version="", ok=False, error="not found", role="aligner"
+    )
+    with pytest.raises(ToolNotFoundError):
+        MummerAdapter().probe(FakeResolver(missing), strict=True)

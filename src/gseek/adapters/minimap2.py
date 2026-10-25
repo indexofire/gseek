@@ -13,7 +13,13 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines, parse_cigar, parse_tag_fields
+from gseek.adapters.base import (
+    float_or_none,
+    iter_data_lines,
+    parse_cigar,
+    parse_tag_fields,
+    result_lines,
+)
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -191,10 +197,12 @@ class Minimap2Adapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[AlignmentRecord]:
+        if not isinstance(ctx.request, AlignRequest):  # pragma: no cover
+            raise ParseError("alignment parser received a non-alignment request")
         secondary_mode = str(ctx.request.params.get("secondary", "no")).lower()
         target_filter = ctx.request.target_filter
         path = str(ctx.plan.result_files[0]) if ctx.plan.result_files else None
-        for line_number, line in iter_data_lines(_result_lines(ctx, stream), skip_prefixes=("#",)):
+        for line_number, line in iter_data_lines(result_lines(ctx, stream), skip_prefixes=("#",)):
             fields = line.split("\t")
             if len(fields) < 12:
                 raise ParseError(
@@ -229,6 +237,9 @@ class Minimap2Adapter(BaseAdapter):
 
             tags = parse_tag_fields(fields[12:])
             is_primary = tags.get("tp", "P") == "P"
+            # Supplementary alignments keep tp:A:P but carry an SA tag; mirror
+            # bwa's SAM 0x800 semantics (supplementary yet primary).
+            is_supplementary = "SA" in tags
             if secondary_mode == "no" and not is_primary:
                 continue
             if target_filter is not None and tname not in target_filter:
@@ -275,7 +286,7 @@ class Minimap2Adapter(BaseAdapter):
                         )
                     identity = 100.0 * max(0, alen - edits) / alen
                     identity_method = "paf_nm"
-            score = _float_or_none(tags.get("AS"))
+            score = float_or_none(tags.get("AS"))
             record_tags = {"identity_method": identity_method}
             for key in ("tp", "NM", "AS", "ms", "cg", "cs", "de", "rl"):
                 if key in tags:
@@ -298,6 +309,7 @@ class Minimap2Adapter(BaseAdapter):
                 mapq=mapq,
                 score=score,
                 is_primary=is_primary,
+                is_supplementary=is_supplementary,
                 tags=record_tags,
             )
 
@@ -326,27 +338,6 @@ def _validated_params(params: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
             context={"params": ", ".join(sorted(unknown))},
         )
     return {str(key): value for key, value in params.items()}
-
-
-def _float_or_none(value: str | None) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
-def _result_lines(
-    ctx: ParseContext,
-    stream: Iterable[str] | None,
-) -> Iterator[str]:
-    if stream is not None:
-        yield from stream
-        return
-    for path in ctx.plan.result_files:
-        with path.open(encoding="utf-8", errors="replace") as handle:
-            yield from handle
 
 
 ADAPTER = Minimap2Adapter

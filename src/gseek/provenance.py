@@ -166,6 +166,10 @@ def to_jsonable(value: Any) -> Any:
         return [to_jsonable(item) for item in value]
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, bytes):
+        # Raw bytes (rare in params) decode lossily instead of crashing
+        # canonical JSON with a bare TypeError.
+        return value.decode("utf-8", errors="replace")
     if isinstance(value, Enum):
         return value.value
     return value
@@ -405,8 +409,20 @@ def verify_manifest(manifest: RunManifest, *, base_dir: Path | None = None) -> t
                         )
                     )
                     continue
-                size = directory_size(path)
-                digest = sha256_tree(path)
+                try:
+                    size = directory_size(path)
+                    digest = sha256_tree(path)
+                except (InputError, OSError) as exc:
+                    # verify's job is to report damage, not to die on it.
+                    issues.append(
+                        Issue(
+                            code=f"{label.upper()}_UNREADABLE",
+                            message=f"{label} directory cannot be read: {path}: {exc}",
+                            severity="error",
+                            context={"path": str(path)},
+                        )
+                    )
+                    continue
             elif path.is_file():
                 size = path.stat().st_size
                 digest = sha256_file(path)

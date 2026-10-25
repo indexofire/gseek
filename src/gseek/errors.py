@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any, NoReturn
+from typing import Any
 
 ERROR_SCHEMA = "gseek.error/1"
 
@@ -209,20 +209,6 @@ def render_error(exc: BaseException) -> str:
     return json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def fail(
-    message: str,
-    *,
-    code: str,
-    exit_code: int = 1,
-    context: Mapping[str, str] | None = None,
-    hint: str = "",
-) -> NoReturn:
-    """Raise a plain :class:`GseekError` with an explicit code (helper)."""
-    error = GseekError(message, code=code, context=context, hint=hint)
-    error.exit_code = exit_code
-    raise error
-
-
 __all__ = [
     "ERROR_SCHEMA",
     "CacheError",
@@ -240,6 +226,5 @@ __all__ = [
     "ToolVersionError",
     "UnsupportedFeatureError",
     "UsageError",
-    "fail",
     "render_error",
 ]

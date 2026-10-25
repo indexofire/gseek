@@ -213,6 +213,21 @@ def test_plan_align_requires_preset_and_rejects_unknown_params(tmp_path: Path) -
         )
 
 
+def test_parse_marks_sa_tagged_rows_supplementary(tmp_path: Path) -> None:
+    # minimap2 supplementary alignments keep tp:A:P but carry an SA tag; the
+    # flag must mirror bwa's SAM 0x800 semantics (supplementary yet primary).
+    lines = [
+        _row(tags=("tp:A:P", "SA:Z:arcC_1,100,+,480M,60,0;")),
+        _row(qstart="2000", qend="2480", tags=("tp:A:S",)),
+    ]
+    records = _parse(lines, params={"secondary": "all"}, tmp_path=tmp_path)
+    assert len(records) == 2
+    assert records[0].is_supplementary is True
+    assert records[0].is_primary is True
+    assert records[1].is_supplementary is False
+    assert records[1].is_primary is False
+
+
 def test_parse_primary_and_secondary_rows(tmp_path: Path) -> None:
     lines = [
         _row(tags=("tp:A:P", "NM:i:0", "AS:i:900")),

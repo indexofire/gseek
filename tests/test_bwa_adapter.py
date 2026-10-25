@@ -201,6 +201,30 @@ def test_plan_align_requires_index(tmp_path: Path) -> None:
         )
 
 
+def test_parse_sam_hard_clipped_supplementary_uses_read_coordinates(tmp_path: Path) -> None:
+    # bwa mem supplementary records carry hard-clipped CIGARs: SEQ no longer
+    # spans the original read, so coordinates must be offset by the clipped
+    # lengths to stay in the read's own coordinate system.
+    lines = [
+        "@SQ\tSN:t1\tLN:600",
+        _sam(flag=2048, cigar="5H50M15H", seq="A" * 50, tags=("NM:i:0",)),
+        _sam(qname="q2", flag=2064, cigar="5H50M15H", seq="A" * 50, tags=("NM:i:0",)),
+    ]
+    records = _parse(lines, tmp_path=tmp_path)
+
+    plus = records[0]
+    assert plus.strand is Strand.PLUS
+    assert plus.query_length == 70
+    assert plus.query_start == 5
+    assert plus.query_end == 55
+
+    minus = records[1]
+    assert minus.strand is Strand.MINUS
+    assert minus.query_length == 70
+    assert minus.query_start == 15
+    assert minus.query_end == 65
+
+
 def test_parse_sam_forward_reverse_and_supplementary(tmp_path: Path) -> None:
     lines = [
         "@HD\tVN:1.5\tSO:unsorted",
@@ -292,3 +316,14 @@ def test_index_and_semantic_params() -> None:
     adapter = BwaAdapter()
     assert adapter.index_params({"algorithm": "bwtsw", "threads": 4}) == {"algorithm": "bwtsw"}
     assert adapter.semantic_params({"mark_shorter": True, "threads": 4}) == {"mark_shorter": True}
+
+
+def test_plan_align_rejects_alignment_algorithm_trap(tmp_path: Path) -> None:
+    # `algorithm` is the bwa *index* construction switch (bwa index -a);
+    # passing "aln"/"bwasw"/"mem" silently changed nothing in the alignment.
+    query = _query(tmp_path)
+    target = _targets(tmp_path)
+    for bogus in ("aln", "bwasw", "mem"):
+        request = AlignRequest(query=(query,), target=(target,), params={"algorithm": bogus})
+        with pytest.raises(UnsupportedFeatureError, match="bwa mem"):
+            BwaAdapter().plan_align(request, _index(), PlanContext(workspace=tmp_path / "work"))

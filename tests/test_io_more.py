@@ -80,8 +80,15 @@ def test_count_fastq_rejects_truncated_record(tmp_path: Path) -> None:
 def test_merge_fasta_rejects_unknown_duplicate_policy(tmp_path: Path) -> None:
     source = tmp_path / "x.fa"
     source.write_text(">x\nACGT\n", encoding="utf-8")
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         merge_fasta([source], tmp_path / "merged.fa", on_duplicate="keep")  # type: ignore[arg-type]
+
+
+def test_merge_fasta_rejects_invalid_width(tmp_path: Path) -> None:
+    source = tmp_path / "x.fa"
+    source.write_text(">x\nACGT\n", encoding="utf-8")
+    with pytest.raises(InputError, match="width"):
+        merge_fasta([source], tmp_path / "merged.fa", width=0)
 
 
 def test_merge_fasta_width_and_uppercase(tmp_path: Path) -> None:

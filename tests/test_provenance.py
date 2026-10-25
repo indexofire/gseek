@@ -199,3 +199,47 @@ def test_verify_manifest_detects_directory_tampering(tmp_path: Path) -> None:
     issues = verify_manifest(manifest)
     assert issues
     assert issues[0].code == "TARGET_HASH_MISMATCH"
+
+
+def test_verify_reports_unreadable_sketch_directory(tmp_path: Path) -> None:
+    # A sketch directory that cannot be hashed (symlink inside) must be
+    # reported as an Issue: verify's whole job is reporting damage.
+    sketch_dir = tmp_path / "refs"
+    sketch_dir.mkdir()
+    (sketch_dir / "ok.sig").write_text("x", encoding="utf-8")
+    (sketch_dir / "bad.sig").symlink_to(tmp_path / "elsewhere")
+
+    base = _manifest(tmp_path)
+    manual_ref = dataclasses.replace(
+        base.targets[0],
+        path=str(sketch_dir.resolve()),
+        size=1,
+        sha256="0" * 64,
+        kind=InputKind.SKETCH,
+    )
+    damaged = dataclasses.replace(base, targets=(manual_ref,))
+    issues = verify_manifest(damaged)
+    assert any(issue.code == "TARGET_UNREADABLE" and issue.severity == "error" for issue in issues)
+
+
+def test_to_jsonable_decodes_bytes() -> None:
+    # params carrying raw bytes must not crash canonical JSON with a bare
+    # TypeError; decode lossily instead.
+    assert to_jsonable(b"nucleotide: \xff") == "nucleotide: �"
+
+
+def test_command_record_from_dict_rejects_bad_phase() -> None:
+    from gseek.errors import ManifestError
+    from gseek.model import CommandRecord
+
+    with pytest.raises(ManifestError):
+        CommandRecord.from_dict(
+            {
+                "phase": "teardown",
+                "label": "x",
+                "argv": ("a",),
+                "cwd": None,
+                "exit_code": 0,
+                "duration_s": 0.0,
+            }
+        )

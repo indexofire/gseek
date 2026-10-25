@@ -23,8 +23,8 @@ def _targets(tmp_path: Path) -> Path:
     return path
 
 
-def _query(tmp_path: Path) -> Path:
-    path = tmp_path / "query.fa"
+def _query(tmp_path: Path, name: str = "query.fa") -> Path:
+    path = tmp_path / name
     path.write_text(">q1\nACGTACGT\n", encoding="utf-8")
     return path
 
@@ -39,8 +39,8 @@ def _index() -> IndexRef:
     )
 
 
-def _plan(stream: bool = True) -> AlignPlan:
-    return AlignPlan(commands=(), stream=stream)
+def _plan(stream: bool = True, result: Path | None = None) -> AlignPlan:
+    return AlignPlan(commands=(), stream=stream, result_files=(result,) if result else ())
 
 
 def _parse(
@@ -276,3 +276,40 @@ def test_plan_distance_external_nondefault_sketch_uses_query_sketch(tmp_path: Pa
         ("mash", "sketch"),
         ("mash", "dist"),
     ]
+
+
+def test_plan_screen_rejects_multiple_query_files(tmp_path: Path) -> None:
+    # mash screen output rows carry no query-file column: attributing them all
+    # to query[0] would be wrong. Require one pooled query file per run.
+    queries = [_query(tmp_path, f"q{i}.fa") for i in range(2)]
+    request = DistanceRequest(
+        query=tuple(queries),
+        reference=(_targets(tmp_path),),
+        params={"mode": "screen"},
+    )
+    with pytest.raises(UnsupportedFeatureError, match="single query"):
+        MashAdapter().plan_distance(request, None, PlanContext(workspace=tmp_path / "work"))
+
+
+def test_external_reference_tags_mark_unknown_sketch_params(tmp_path: Path) -> None:
+    # A pre-built .msh may use different k/sketch_size than the request;
+    # recording the request values would misdescribe the comparison.
+    result = tmp_path / "dist.tsv"
+    result.write_text(
+        "ref.msh\tquery.fa\t0.05\t1.0\t100/1000\n",
+        encoding="utf-8",
+    )
+    request = DistanceRequest(
+        query=(_query(tmp_path),),
+        reference=(tmp_path / "external.msh",),
+        params={"mode": "dist", "k": 21, "sketch_size": 1000},
+        external_reference=True,
+    )
+    ctx = ParseContext(
+        request=request,  # type: ignore[arg-type]
+        plan=_plan(result=result),
+        workspace=tmp_path,
+    )
+    record = next(iter(MashAdapter().parse_distance(ctx)))
+    assert record.tags["k"] == "unknown"
+    assert record.tags["sketch_size"] == "unknown"

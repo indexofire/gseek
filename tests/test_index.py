@@ -101,6 +101,37 @@ def test_lookup_ignores_corrupt_index(tmp_path: Path) -> None:
     assert store.lookup("fake", key) is None
 
 
+def test_lookup_ignores_hostile_artifact_patterns(tmp_path: Path) -> None:
+    # A corrupted cache manifest must degrade to a cache miss, never crash the
+    # run (absolute glob raises NotImplementedError) or glob outside the cache.
+    store = IndexStore(tmp_path / "cache")
+    key = "f" * 64
+    staging = store.new_staging("fake", key)
+    (staging / "index.txt").write_text("payload", encoding="utf-8")
+    store.publish(
+        staging,
+        adapter="fake",
+        key=key,
+        adapter_version="1",
+        entry="index.txt",
+        artifacts=("index.txt",),
+        source_sha256="9" * 64,
+        params={},
+        tool_versions={},
+    )
+    index_json = store.path_for("fake", key) / "index.json"
+    original = json.loads(index_json.read_text(encoding="utf-8"))
+    for hostile in ("/etc/*", 5, ["../../outside.txt"], [None]):
+        data = dict(original)
+        data["artifacts"] = hostile
+        index_json.write_text(json.dumps(data), encoding="utf-8")
+        assert store.lookup("fake", key) is None, f"artifacts={hostile!r}"
+    data = dict(original)
+    data["artifacts"] = ["index.txt"]
+    index_json.write_text(json.dumps(data), encoding="utf-8")
+    assert store.lookup("fake", key) is not None
+
+
 def test_gc_dry_run_and_apply(tmp_path: Path) -> None:
     store = IndexStore(tmp_path / "cache")
     for sha in ("1", "2"):

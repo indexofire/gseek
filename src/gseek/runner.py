@@ -21,6 +21,8 @@ from gseek.adapter import (
 from gseek.capabilities import BackendSpec, ToolchainProbe
 from gseek.errors import (
     ConfigError,
+    ExecutionError,
+    GseekError,
     IndexBuildError,
     InputError,
     ParseError,
@@ -30,6 +32,7 @@ from gseek.execution import (
     CommandPlan,
     Executor,
     ProcessResult,
+    ToolProbe,
     ToolResolver,
     create_workspace,
     env_for_manifest,
@@ -39,6 +42,7 @@ from gseek.io import expand_fasta_paths
 from gseek.model import (
     AlignmentRecord,
     AlignmentResult,
+    CommandPhase,
     CommandRecord,
     DistanceRecord,
     DistanceResult,
@@ -66,7 +70,36 @@ from gseek.provenance import (
 from gseek.registry import find_backends, get_backend
 from gseek.types import InputKind, JsonValue, OutputKind, RunStatus
 
-_CommandPhase = str
+
+def _validate_tools_hook(
+    adapter: AlignmentAdapter | DistanceAdapter,
+    request: AlignRequest | DistanceRequest,
+    probe: ToolchainProbe,
+) -> None:
+    """Call the optional per-request tool gate (see BaseAdapter.validate_tools)."""
+    validate = getattr(adapter, "validate_tools", None)
+    if callable(validate):
+        validate(request, probe)
+
+
+def _checked_records[RecordT: (AlignmentRecord, DistanceRecord)](
+    records: tuple[Any, ...],
+    record_cls: type[RecordT],
+    backend: str,
+) -> tuple[RecordT, ...]:
+    """Filter to *record_cls* and fail loudly on any foreign value.
+
+    Adapters are trusted planners but their parsers are the least typed edge:
+    silently dropping a non-record value would lose data without a trace.
+    """
+    normalized = tuple(record for record in records if isinstance(record, record_cls))
+    if len(normalized) != len(records):
+        kind = "alignment" if record_cls is AlignmentRecord else "distance"
+        raise ParseError(
+            f"{kind} adapter {backend!r} returned non-{record_cls.__name__} values",
+            context={"backend": backend},
+        )
+    return cast(tuple[RecordT, ...], normalized)
 
 
 def resolve_adapter(
@@ -109,10 +142,10 @@ def resolve_adapter(
 def _command_record(
     result: ProcessResult,
     *,
-    phase: _CommandPhase,
+    phase: CommandPhase,
 ) -> CommandRecord:
     return CommandRecord(
-        phase=phase,  # type: ignore[arg-type]
+        phase=phase,
         label=result.plan.label or result.plan.argv[0],
         argv=result.plan.argv,
         cwd=str(result.plan.cwd) if result.plan.cwd is not None else None,
@@ -128,13 +161,41 @@ def _run_commands(
     commands: Sequence[CommandPlan],
     executor: Executor,
     *,
-    phase: _CommandPhase,
+    phase: CommandPhase,
 ) -> tuple[CommandRecord, ...]:
     records: list[CommandRecord] = []
     for command in commands:
-        result = executor.run(command)
+        try:
+            result = executor.run(command)
+        except ExecutionError as exc:
+            # Audit the failing command itself and surface every record run so
+            # far: the run-level failure manifest must show what executed.
+            exc.command_records = (  # type: ignore[attr-defined]
+                *records,
+                _command_record_from_error(command, exc, phase=phase),
+            )
+            raise
         records.append(_command_record(result, phase=phase))
     return tuple(records)
+
+
+def _command_record_from_error(
+    command: CommandPlan,
+    exc: ExecutionError,
+    *,
+    phase: CommandPhase,
+) -> CommandRecord:
+    return CommandRecord(
+        phase=phase,
+        label=command.label or command.argv[0],
+        argv=command.argv,
+        cwd=str(command.cwd) if command.cwd is not None else None,
+        exit_code=exc.returncode if exc.returncode is not None else -1,
+        duration_s=0.0,
+        timed_out=exc.timed_out,
+        stderr_tail=exc.stderr,
+        stdout_path=str(command.stdout) if command.stdout is not None else None,
+    )
 
 
 def _effective_params(
@@ -164,21 +225,27 @@ def _index_key(
     adapter: AlignmentAdapter | DistanceAdapter,
     request: AlignRequest | DistanceRequest,
     target_refs: tuple[InputRef, ...],
-    tools: tuple[Any, ...],
-) -> str:
+    tools: tuple[ToolProbe, ...],
+) -> tuple[str, dict[str, JsonValue], dict[str, str]]:
+    """Return the cache key *and* the exact identity inputs it was built from.
+
+    ``publish`` must record the same params/tool versions the key hashed;
+    otherwise the archived provenance misdescribes the cache entry.
+    """
     tool_versions = {tool.name: tool.version for tool in tools}
     index_params_fn = getattr(adapter, "index_params", None)
     if callable(index_params_fn):
-        index_params = cast(Mapping[str, JsonValue], index_params_fn(request.params))
+        index_params = dict(cast(Mapping[str, JsonValue], index_params_fn(request.params)))
     else:
-        index_params = adapter.semantic_params(request.params)
-    return compute_index_key(
+        index_params = dict(adapter.semantic_params(request.params))
+    key = compute_index_key(
         adapter=spec.name,
         adapter_version=_adapter_identity(spec),
         targets=target_refs,
         params=index_params,
         tool_versions=tool_versions,
     )
+    return key, index_params, tool_versions
 
 
 def _ensure_index(
@@ -186,7 +253,7 @@ def _ensure_index(
     adapter: AlignmentAdapter | DistanceAdapter,
     request: AlignRequest | DistanceRequest,
     target_refs: tuple[InputRef, ...],
-    tools: tuple[Any, ...],
+    tools: tuple[ToolProbe, ...],
     probe: ToolchainProbe,
     executor: Executor,
     store: IndexStore,
@@ -201,7 +268,7 @@ def _ensure_index(
     ):
         return None, ()
 
-    key = _index_key(spec, adapter, request, target_refs, tools)
+    key, index_params, tool_versions = _index_key(spec, adapter, request, target_refs, tools)
     with store.lock(spec.name, key):
         existing = store.lookup(spec.name, key)
         if existing is not None and policy is not IndexPolicy.REBUILD:
@@ -214,7 +281,7 @@ def _ensure_index(
 
         staging = store.new_staging(spec.name, key)
         try:
-            index_refs = tuple(tool.to_tool_ref() for tool in probe.tools if tool.path is not None)
+            tuple(tool.to_tool_ref() for tool in probe.tools if tool.path is not None)
             ctx = PlanContext(
                 workspace=staging,
                 index_dir=staging,
@@ -249,8 +316,8 @@ def _ensure_index(
                 entry=plan.entry,
                 artifacts=plan.artifacts,
                 source_sha256=source_sha256,
-                params=plan.params or request.params,
-                tool_versions={tool.name: tool.version for tool in index_refs},
+                params=plan.params or index_params,
+                tool_versions=tool_versions,
                 replace=policy is IndexPolicy.REBUILD,
             )
             return published, records
@@ -266,13 +333,15 @@ def _build_manifest(
     query_refs: tuple[InputRef, ...],
     target_refs: tuple[InputRef, ...],
     params: dict[str, JsonValue],
-    tools: tuple[Any, ...],
+    tools: tuple[ToolProbe, ...],
     index: IndexRef | None,
     commands: tuple[CommandRecord, ...],
     started: float,
     env: Mapping[str, str] | None = None,
     result_hash_value: str | None = None,
     warnings: tuple[Issue, ...] = (),
+    status: RunStatus = RunStatus.OK,
+    errors: tuple[Issue, ...] = (),
 ) -> RunManifest:
     tool_refs = tuple(tool.to_tool_ref() for tool in tools)
     digest = recipe_hash(
@@ -302,7 +371,8 @@ def _build_manifest(
         commands=commands,
         result_hash=result_hash_value,
         env=env_for_manifest(env),
-        status=RunStatus.OK,
+        status=status,
+        errors=errors,
         duration_s=time.monotonic() - started,
         warnings=warnings,
         extra={
@@ -383,6 +453,10 @@ def run_alignment(
 ) -> AlignmentResult:
     """Run one alignment request and return normalized records plus provenance."""
     started = time.monotonic()
+    # Config errors fail fast: before any probe, index build, or command runs.
+    destination = _prepare_manifest_path(manifest_path)
+    if destination is not None and not record_manifest:
+        raise ConfigError("manifest_path requires record_manifest=True")
     selected = resolve_adapter(
         backend=backend,
         adapter=adapter,
@@ -420,6 +494,7 @@ def run_alignment(
         work_dir=request.work_dir,
         keep_work=request.keep_work,
     )
+    _validate_tools_hook(align_adapter, effective_request, probe)
     params = _effective_params(align_adapter, effective_request)
 
     index, index_commands = _ensure_index(
@@ -432,6 +507,7 @@ def run_alignment(
         store=store,
         policy=request.index_policy,
     )
+    align_commands: tuple[CommandRecord, ...] = ()
 
     workspace = create_workspace(
         prefix=f"gseek-{spec.name}-",
@@ -458,27 +534,27 @@ def run_alignment(
 
         align_started = time.monotonic()
         records: tuple[Any, ...]
-        align_commands: tuple[CommandRecord, ...]
         if plan.stream:
             if not plan.commands:
                 raise ConfigError("streaming alignment plan has no commands")
             leading = _run_commands(plan.commands[:-1], executor, phase="align")
             last = plan.commands[-1]
-            with executor.stream(last) as process:
-                parsed = tuple(align_adapter.parse_align(parse_ctx, process.iter_lines()))
-                result = process.wait()
+            try:
+                with executor.stream(last) as process:
+                    parsed = tuple(align_adapter.parse_align(parse_ctx, process.iter_lines()))
+                    result = process.wait()
+            except ExecutionError as exc:
+                exc.command_records = (  # type: ignore[attr-defined]
+                    _command_record_from_error(last, exc, phase="align"),
+                )
+                raise
             align_commands = (*leading, _command_record(result, phase="align"))
             records = parsed
         else:
             align_commands = _run_commands(plan.commands, executor, phase="align")
             records = tuple(align_adapter.parse_align(parse_ctx))
 
-        normalized = tuple(record for record in records if isinstance(record, AlignmentRecord))
-        if len(normalized) != len(records):
-            raise ParseError(
-                f"alignment adapter {spec.name!r} returned non-AlignmentRecord values",
-                context={"backend": spec.name},
-            )
+        normalized = _checked_records(records, AlignmentRecord, spec.name)
         runtime_s = time.monotonic() - align_started
         stats = build_alignment_stats(
             normalized,
@@ -512,13 +588,42 @@ def run_alignment(
             index=index,
             manifest=manifest,
         )
-        destination = _prepare_manifest_path(manifest_path)
-        if destination is not None and not record_manifest:
-            raise ConfigError("manifest_path requires record_manifest=True")
         if destination is not None:
             assert manifest is not None
             write_manifest(destination, manifest)
         return result
+    except GseekError as exc:
+        # A failed run still leaves an audit trail: the commands that already
+        # ran, the failure itself, and a FAILED status for verify/replay.
+        if record_manifest:
+            failed_manifest = _build_manifest(
+                spec=spec,
+                request=effective_request,
+                query_refs=query_refs,
+                target_refs=target_refs,
+                params=params,
+                tools=tools,
+                index=index,
+                commands=(
+                    *index_commands,
+                    *align_commands,
+                    *getattr(exc, "command_records", ()),
+                ),
+                started=started,
+                env=executor.base_env,
+                status=RunStatus.FAILED,
+                errors=(
+                    Issue(
+                        code="RUN_FAILED",
+                        message=str(exc),
+                        severity="error",
+                        context={"error": exc.code, "backend": spec.name},
+                    ),
+                ),
+            )
+            if destination is not None:
+                write_manifest(destination, failed_manifest)
+        raise
     finally:
         workspace.cleanup()
 
@@ -536,6 +641,10 @@ def run_distance(
 ) -> DistanceResult:
     """Run one MinHash/distance request."""
     started = time.monotonic()
+    # Config errors fail fast: before any probe, index build, or command runs.
+    destination = _prepare_manifest_path(manifest_path)
+    if destination is not None and not record_manifest:
+        raise ConfigError("manifest_path requires record_manifest=True")
     selected = resolve_adapter(
         backend=backend,
         adapter=adapter,
@@ -572,6 +681,7 @@ def run_distance(
         work_dir=request.work_dir,
         keep_work=request.keep_work,
     )
+    _validate_tools_hook(distance_adapter, effective_request, probe)
     params = _effective_params(distance_adapter, effective_request)
 
     index, index_commands = _ensure_index(
@@ -584,6 +694,7 @@ def run_distance(
         store=store,
         policy=request.index_policy,
     )
+    distance_commands: tuple[CommandRecord, ...] = ()
 
     workspace = create_workspace(
         prefix=f"gseek-{spec.name}-",
@@ -601,7 +712,7 @@ def run_distance(
         )
         plan = distance_adapter.plan_distance(effective_request, index, ctx)
         parse_ctx = ParseContext(
-            request=effective_request,  # type: ignore[arg-type]
+            request=effective_request,
             plan=plan,
             workspace=workspace.root,
             index=index,
@@ -609,22 +720,28 @@ def run_distance(
         )
 
         align_started = time.monotonic()
-        distance_commands: tuple[CommandRecord, ...]
         records: tuple[Any, ...]
         if plan.stream:
             if not plan.commands:
                 raise ConfigError("streaming distance plan has no commands")
             leading = _run_commands(plan.commands[:-1], executor, phase="distance")
-            with executor.stream(plan.commands[-1]) as process:
-                parsed = tuple(distance_adapter.parse_distance(parse_ctx, process.iter_lines()))
-                result = process.wait()
+            last = plan.commands[-1]
+            try:
+                with executor.stream(last) as process:
+                    parsed = tuple(distance_adapter.parse_distance(parse_ctx, process.iter_lines()))
+                    result = process.wait()
+            except ExecutionError as exc:
+                exc.command_records = (  # type: ignore[attr-defined]
+                    _command_record_from_error(last, exc, phase="distance"),
+                )
+                raise
             distance_commands = (*leading, _command_record(result, phase="distance"))
             records = parsed
         else:
             distance_commands = _run_commands(plan.commands, executor, phase="distance")
             records = tuple(distance_adapter.parse_distance(parse_ctx))
 
-        normalized = tuple(record for record in records if isinstance(record, DistanceRecord))
+        normalized = _checked_records(records, DistanceRecord, spec.name)
         runtime_s = time.monotonic() - align_started
         stats = DistanceStats(
             record_count=len(normalized),
@@ -658,13 +775,40 @@ def run_distance(
             index=index,
             manifest=manifest,
         )
-        destination = _prepare_manifest_path(manifest_path)
-        if destination is not None and not record_manifest:
-            raise ConfigError("manifest_path requires record_manifest=True")
         if destination is not None:
             assert manifest is not None
             write_manifest(destination, manifest)
         return result
+    except GseekError as exc:
+        if record_manifest:
+            failed_manifest = _build_manifest(
+                spec=spec,
+                request=effective_request,
+                query_refs=query_refs,
+                target_refs=target_refs,
+                params=params,
+                tools=tools,
+                index=index,
+                commands=(
+                    *index_commands,
+                    *distance_commands,
+                    *getattr(exc, "command_records", ()),
+                ),
+                started=started,
+                env=executor.base_env,
+                status=RunStatus.FAILED,
+                errors=(
+                    Issue(
+                        code="RUN_FAILED",
+                        message=str(exc),
+                        severity="error",
+                        context={"error": exc.code, "backend": spec.name},
+                    ),
+                ),
+            )
+            if destination is not None:
+                write_manifest(destination, failed_manifest)
+        raise
     finally:
         workspace.cleanup()
 

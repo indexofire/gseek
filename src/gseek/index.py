@@ -15,7 +15,7 @@ import shutil
 import time
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -92,7 +92,32 @@ def compute_index_key(
     return sha256_json(payload)
 
 
-def directory_size(path: Path) -> int:
+def _valid_key(key: str) -> bool:
+    """Reject keys that would escape the adapter cache directory."""
+    return bool(key) and "/" not in key and "\\" not in key and ".." not in key
+
+
+def _staging_owner_alive(name: str) -> bool:
+    """Return True when the pid embedded in a staging dir name still runs."""
+    parts = name.split("-")  # .staging-{key}-{pid}-{uuid}
+    if len(parts) < 4:
+        return False
+    try:
+        pid = int(parts[-2])
+    except ValueError:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # exists but is not ours; assume alive
+    return True
+
+
+def tree_size(path: Path) -> int:
+    """Total regular-file size under *path* (tolerant; cf. provenance.directory_size,
+    which is strict and raises on unreadable trees)."""
     total = 0
     for child in path.rglob("*"):
         if child.is_file():
@@ -111,6 +136,18 @@ def _valid_entry(entry: str) -> bool:
     if path.is_absolute() or ".." in path.parts:
         return False
     return not any(char in entry for char in "*?[")
+
+
+def _valid_artifact_pattern(pattern: str) -> bool:
+    """Reject artifact glob patterns that escape the index directory.
+
+    Wildcards are allowed (patterns are matched with ``Path.glob``); absolute
+    patterns crash ``Path.glob`` and ``..`` components could match outside the
+    cache, so both are cache misses instead.
+    """
+    if not pattern or pattern.startswith(("/", "\\")):
+        return False
+    return ".." not in Path(pattern).parts
 
 
 def _entry_exists(directory: Path, entry: str) -> bool:
@@ -153,7 +190,7 @@ class IndexStore:
         return self.index_root / adapter
 
     def path_for(self, adapter: str, key: str) -> Path:
-        if not key or "/" in key or "\\" in key or ".." in key:
+        if not _valid_key(key):
             raise CacheError(f"invalid index key: {key!r}")
         return self.adapter_root(adapter) / key
 
@@ -178,12 +215,22 @@ class IndexStore:
         ):
             return None
         entry = str(data.get("entry", ""))
-        artifacts = tuple(str(item) for item in data.get("artifacts", ()))
+        raw_artifacts = data.get("artifacts", ())
+        if isinstance(raw_artifacts, (str, bytes)) or not isinstance(raw_artifacts, (list, tuple)):
+            return None
+        if any(
+            not isinstance(item, str) or not _valid_artifact_pattern(item) for item in raw_artifacts
+        ):
+            return None
+        artifacts = tuple(raw_artifacts)
         if not _valid_entry(entry) or not _entry_exists(final, entry):
             return None
-        for pattern in artifacts:
-            if not any(final.glob(pattern)):
-                return None
+        try:
+            for pattern in artifacts:
+                if not any(final.glob(pattern)):
+                    return None
+        except (NotImplementedError, ValueError):  # pragma: no cover - defensive
+            return None
         try:
             return IndexRef(
                 key=key,
@@ -319,6 +366,8 @@ class IndexStore:
         """Acquire an exclusive cross-process lock for one index key."""
         self._require_enabled()
         self._ensure_root()
+        if not _valid_key(key):
+            raise CacheError(f"invalid index key: {key!r}")
         root = self.adapter_root(adapter)
         root.mkdir(parents=True, exist_ok=True)
         lock_path = root / f"{key}.lock"
@@ -370,12 +419,41 @@ class IndexStore:
                         key=index_dir.name,
                         adapter=adapter_dir.name,
                         path=index_dir,
-                        size_bytes=directory_size(index_dir),
+                        size_bytes=tree_size(index_dir),
                         created_at=created_at,
                     )
                 )
         entries.sort(key=lambda entry: (entry.created_at or "", entry.adapter, entry.key))
         return tuple(entries)
+
+    def _stale_staging_entries(self) -> list[IndexGcEntry]:
+        """Leftover ``.staging-*`` directories from crashed builds.
+
+        A staging directory is transient by construction; its name embeds the
+        builder's pid, so anything owned by a dead process is pure garbage
+        that neither ``list_indexes`` nor ``gc`` would otherwise reclaim.
+        """
+        stale: list[IndexGcEntry] = []
+        if not self.index_root.is_dir():
+            return stale
+        for adapter_dir in sorted(self.index_root.iterdir()):
+            if not adapter_dir.is_dir():
+                continue
+            for child in sorted(adapter_dir.iterdir()):
+                if not child.is_dir() or not child.name.startswith(".staging-"):
+                    continue
+                if _staging_owner_alive(child.name):
+                    continue
+                stale.append(
+                    IndexGcEntry(
+                        key=child.name,
+                        adapter=adapter_dir.name,
+                        path=child,
+                        size_bytes=tree_size(child),
+                        created_at=None,
+                    )
+                )
+        return stale
 
     def gc(
         self,
@@ -407,10 +485,27 @@ class IndexStore:
             if too_old or too_large:
                 selected.append(entry)
                 total -= entry.size_bytes
+        # Staging leftovers are garbage independent of the budget policy.
+        selected.extend(self._stale_staging_entries())
         if dry_run:
             return tuple(selected)
         removed: list[IndexGcEntry] = []
         for entry in selected:
+            if entry.key.startswith(".staging-"):
+                # Garbage from a crashed build (dead pid): no lock, just drop.
+                shutil.rmtree(entry.path, ignore_errors=True)
+                if not entry.path.exists():
+                    removed.append(
+                        IndexGcEntry(
+                            key=entry.key,
+                            adapter=entry.adapter,
+                            path=entry.path,
+                            size_bytes=entry.size_bytes,
+                            created_at=entry.created_at,
+                            removed=True,
+                        )
+                    )
+                continue
             # Best-effort: never delete an index while another process holds
             # its build lock. Skip it and let a later GC retry.
             try:
@@ -420,6 +515,10 @@ class IndexStore:
                 continue
             if entry.path.exists():
                 continue
+            # The flock lives on the inode; the leftover lock file would
+            # otherwise accumulate one entry per GC'd index forever.
+            with suppress(OSError):
+                (self.adapter_root(entry.adapter) / f"{entry.key}.lock").unlink()
             removed.append(
                 IndexGcEntry(
                     key=entry.key,
@@ -439,5 +538,5 @@ __all__ = [
     "IndexStore",
     "compute_index_key",
     "default_cache_root",
-    "directory_size",
+    "tree_size",
 ]

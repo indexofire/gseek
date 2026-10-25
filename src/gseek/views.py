@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Sequence
 
+from gseek.errors import UsageError
 from gseek.model import AlignmentRecord, AlignmentResult, DistanceResult
 from gseek.types import JsonValue
 
@@ -58,7 +59,9 @@ def to_tsv(
     """Serialize alignment records as header + rows with selected columns."""
     unknown = [column for column in columns if column not in DEFAULT_TSV_COLUMNS]
     if unknown:
-        raise ValueError(f"unknown TSV columns: {unknown}")
+        raise UsageError(
+            f"unknown TSV columns: {unknown}; expected only {list(DEFAULT_TSV_COLUMNS)}"
+        )
     lines = ["\t".join(columns)]
     for record in result.records:
         payload = record.to_dict()

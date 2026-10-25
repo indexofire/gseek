@@ -13,7 +13,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines
+from gseek.adapters.base import iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolchainProbe, ToolRequirement
 from gseek.errors import ParseError, ToolNotFoundError, ToolVersionError, UnsupportedFeatureError
 from gseek.execution import CommandPlan, ToolProbe, ToolResolver
@@ -87,9 +87,10 @@ class MummerAdapter(BaseAdapter):
             error="; ".join(failures),
         )
         if strict and not result.ok:
-            if not nucmer.ok and (
-                "older" in nucmer.error.lower() or "version" in nucmer.error.lower()
-            ):
+            # Classify by structure, not by sniffing the error text: a binary
+            # that exists but probes badly is a version/tool problem, a binary
+            # without a path is simply missing.
+            if nucmer.path is not None and not nucmer.ok:
                 raise ToolVersionError(
                     f"backend 'mummer' has an unusable nucmer version: {nucmer.error}",
                     context={"backend": self.spec.name, "binary": "nucmer"},
@@ -158,9 +159,11 @@ class MummerAdapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[AlignmentRecord]:
+        if not isinstance(ctx.request, AlignRequest):  # pragma: no cover
+            raise ParseError("alignment parser received a non-alignment request")
         target_filter = ctx.request.target_filter
         path = str(ctx.plan.result_files[0]) if ctx.plan.result_files else None
-        for line_number, line in iter_data_lines(_result_lines(ctx, stream), skip_prefixes=()):
+        for line_number, line in iter_data_lines(result_lines(ctx, stream), skip_prefixes=()):
             # show-coords echoes the delta header (target/query paths, NUCMER,
             # [S1]...); only numeric data rows start with a digit.
             if not line[:1].isdigit():
@@ -222,18 +225,6 @@ def _validated_params(params: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
             context={"params": ", ".join(sorted(unknown))},
         )
     return {str(key): value for key, value in params.items()}
-
-
-def _result_lines(
-    ctx: ParseContext,
-    stream: Iterable[str] | None,
-) -> Iterator[str]:
-    if stream is not None:
-        yield from stream
-        return
-    for path in ctx.plan.result_files:
-        with path.open(encoding="utf-8", errors="replace") as handle:
-            yield from handle
 
 
 ADAPTER = MummerAdapter

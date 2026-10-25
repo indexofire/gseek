@@ -426,7 +426,24 @@ def test_plan_align_rejects_preset(tmp_path: Path) -> None:
 
 def test_parser_preserves_sseq(tmp_path: Path) -> None:
     line = _row() + "\tACGTACGT"
+    record = _parse([line], params={"sseq": True}, tmp_path=tmp_path)[0]
+    assert record.target_aligned == "ACGTACGT"
+
+
+def test_parser_keeps_tabbed_title_without_sseq_param(tmp_path: Path) -> None:
+    # BLAST does not escape tabs in stitle; without the sseq column requested,
+    # every extra field belongs to the title and must never leak into
+    # target_aligned.
+    line = _row(stitle="allele\tone\t(tabbed)")
     record = _parse([line], tmp_path=tmp_path)[0]
+    assert record.target_description == "allele\tone\t(tabbed)"
+    assert record.target_aligned is None
+
+
+def test_parser_keeps_tabbed_title_with_sseq_param(tmp_path: Path) -> None:
+    line = _row(stitle="allele\tone\t(tabbed)") + "\tACGTACGT"
+    record = _parse([line], params={"sseq": True}, tmp_path=tmp_path)[0]
+    assert record.target_description == "allele\tone\t(tabbed)"
     assert record.target_aligned == "ACGTACGT"
 
 
@@ -448,3 +465,55 @@ def test_plan_align_requests_sseq_only_when_asked(tmp_path: Path) -> None:
     )
     outfmt = plan.commands[0].argv[plan.commands[0].argv.index("-outfmt") + 1]
     assert outfmt.endswith(" sseq")
+
+
+def test_validate_tools_gates_task_binary_and_fast_task_version(tmp_path: Path) -> None:
+    from gseek.capabilities import ToolchainProbe
+    from gseek.errors import ToolNotFoundError, ToolVersionError
+    from gseek.execution import ToolProbe
+
+    adapter = BlastAdapter()
+
+    def probe_for(
+        binary: str,
+        version: str = "",
+        *,
+        ok: bool = True,
+        path: str | None = "/usr/bin/x",
+    ) -> ToolchainProbe:
+        return ToolchainProbe(
+            backend="blast",
+            tools=(
+                ToolProbe(
+                    name=binary,
+                    path=Path(path) if path else None,
+                    version=version,
+                    ok=ok,
+                    role="aligner",
+                ),
+            ),
+            ok=True,
+        )
+
+    base = AlignRequest(query=(_query(tmp_path),), target=(_targets(tmp_path),))
+    blastx = AlignRequest(
+        query=(_query(tmp_path),), target=(_targets(tmp_path),), params={"task": "blastx"}
+    )
+    blastx_fast = AlignRequest(
+        query=(_query(tmp_path),), target=(_targets(tmp_path),), params={"task": "blastx-fast"}
+    )
+
+    # Present and new enough: passes.
+    adapter.validate_tools(base, probe_for("blastn", "2.17.0"))
+    adapter.validate_tools(blastx, probe_for("blastx", "2.17.0"))
+    adapter.validate_tools(blastx_fast, probe_for("blastx", "2.17.0"))
+
+    # Missing optional binary: actionable error, not a late subprocess spawn.
+    with pytest.raises(ToolNotFoundError, match="blastx"):
+        adapter.validate_tools(blastx, probe_for("blastx", "", path=""))
+
+    # Too old for the requested task (incl. the 2.11 floor for -fast).
+    with pytest.raises(ToolVersionError):
+        adapter.validate_tools(blastx, probe_for("blastx", "2.2.29"))
+    with pytest.raises(ToolVersionError, match=r"2\.11"):
+        adapter.validate_tools(blastx_fast, probe_for("blastx", "2.10.0"))

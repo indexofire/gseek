@@ -282,3 +282,25 @@ def test_index_accepts_align_only_mem_mode(tmp_path: Path) -> None:
     )
     assert plan is not None
     assert plan.entry == "kma_db"
+
+
+def test_plan_align_rejects_extra_query_files(tmp_path: Path) -> None:
+    # Only query[0] (plus query[1] when paired) is ever passed to kma; extra
+    # files are silently dropped today, misattributing every record.
+    queries = [_query(tmp_path, f"q{i}.fq") for i in range(3)]
+    # AlignRequest itself enforces the query count, so kma never sees extra
+    # files that would be silently dropped.
+    with pytest.raises(UnsupportedFeatureError, match="query file"):
+        AlignRequest(query=tuple(queries), target=(_targets(tmp_path),))
+
+
+def test_parse_rejects_stream_input_explicitly(tmp_path: Path) -> None:
+    # KMA parses .res files; a supplied stream must not be silently ignored.
+    ctx = ParseContext(
+        request=AlignRequest(query=(_query(tmp_path),), target=(_targets(tmp_path),)),
+        plan=_plan(tmp_path),
+        workspace=tmp_path,
+        index=_index(),
+    )
+    with pytest.raises(UnsupportedFeatureError, match="stream"):
+        list(KmaAdapter().parse_align(ctx, iter(["# dummy"])))

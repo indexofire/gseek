@@ -186,6 +186,11 @@ class SourmashAdapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[DistanceRecord]:
+        if stream is not None:
+            raise UnsupportedFeatureError(
+                "sourmash parses its CSV result file; streaming input is not supported",
+                context={"backend": "sourmash"},
+            )
         path = ctx.plan.result_files[0] if ctx.plan.result_files else None
         request = cast(DistanceRequest, ctx.request)
         mode = str(request.params.get("mode", "search")).lower()
@@ -196,6 +201,10 @@ class SourmashAdapter(BaseAdapter):
                 "sourmash search CSV not found",
                 path=str(path) if path is not None else None,
             )
+        if path.stat().st_size == 0:
+            # `sourmash search`/`gather` write a 0-byte CSV (exit 0) when
+            # nothing passes the threshold: a legitimate empty result.
+            return
         if mode == "gather":
             yield from _parse_gather(path, request)
             return

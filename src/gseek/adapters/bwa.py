@@ -13,7 +13,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import parse_cigar, parse_sam_tags
+from gseek.adapters.base import float_or_none, parse_cigar, parse_sam_tags
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -162,6 +162,15 @@ class BwaAdapter(BaseAdapter):
     ) -> AlignPlan:
         self.check_align_request(request)
         params = _validate_align_params(request.params)
+        algorithm = str(params.get("algorithm", "")).lower()
+        if algorithm in {"aln", "bwasw", "mem"}:
+            raise UnsupportedFeatureError(
+                f"algorithm={algorithm!r} selects a bwa *index* construction "
+                "method (bwa index -a); gseek only performs 'bwa mem' "
+                "alignments",
+                context={"algorithm": algorithm},
+                hint="remove params['algorithm'] or pass an index algorithm like 'is'",
+            )
         secondary = str(params.get("secondary", "no")).lower()
         if secondary not in {"no", "all"}:
             raise UnsupportedFeatureError(
@@ -211,6 +220,8 @@ class BwaAdapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[AlignmentRecord]:
+        if not isinstance(ctx.request, AlignRequest):  # pragma: no cover
+            raise ParseError("alignment parser received a non-alignment request")
         secondary_mode = str(ctx.request.params.get("secondary", "no")).lower()
         target_filter = ctx.request.target_filter
         target_lengths: dict[str, int] = {}
@@ -265,7 +276,8 @@ class BwaAdapter(BaseAdapter):
                 ) from exc
 
             seq = fields[9]
-            query_length = len(seq) if seq != "*" else None
+            hard_clipped = stats.leading_hard_clip + stats.trailing_hard_clip
+            query_length = len(seq) + hard_clipped if seq != "*" else None
             tags = parse_sam_tags(fields[11:])
             is_primary = not bool(flag & 0x100)
             is_supplementary = bool(flag & 0x800)
@@ -278,12 +290,14 @@ class BwaAdapter(BaseAdapter):
             query_start: int | None = None
             query_end: int | None = None
             if query_length is not None:
+                # Hard clips drop bases from SEQ: coordinates must be offset
+                # back into the original read's coordinate system.
                 if strand is Strand.MINUS:
-                    query_start = stats.trailing_soft_clip
-                    query_end = query_length - stats.leading_soft_clip
+                    query_start = stats.trailing_hard_clip + stats.trailing_soft_clip
+                    query_end = query_length - (stats.leading_soft_clip + stats.leading_hard_clip)
                 else:
-                    query_start = stats.leading_soft_clip
-                    query_end = query_length - stats.trailing_soft_clip
+                    query_start = stats.leading_hard_clip + stats.leading_soft_clip
+                    query_end = query_length - (stats.trailing_soft_clip + stats.trailing_hard_clip)
                 query_start = max(0, min(query_start, query_length))
                 query_end = max(query_start, min(query_end, query_length))
 
@@ -292,7 +306,7 @@ class BwaAdapter(BaseAdapter):
                 target_start + stats.reference_consumed if target_start is not None else None
             )
             identity = _identity_from_nm(stats.aligned_columns, tags.get("NM"))
-            score = _float_or_none(tags.get("AS"))
+            score = float_or_none(tags.get("AS"))
             record_tags = {"identity_method": "sam_nm"}
             for key in ("NM", "AS", "XS", "MD", "SA", "RG"):
                 if key in tags:
@@ -343,15 +357,6 @@ def _identity_from_nm(aligned_columns: int, nm_raw: str | None) -> float | None:
         return None
     matches = max(0, aligned_columns - edits)
     return 100.0 * matches / aligned_columns
-
-
-def _float_or_none(value: str | None) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
 
 
 def _validate_index_params(params: Mapping[str, JsonValue]) -> None:

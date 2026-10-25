@@ -21,11 +21,11 @@ from gseek.types import InputKind, RunStatus
 
 
 def test_file_ref_validation() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         FileRef(path="x", size=-1, sha256="a" * 64)
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         FileRef(path="x", size=0, sha256="short")
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         FileRef(path="x", size=0, sha256="z" * 64)
     assert FileRef(path="x", size=0, sha256="a" * 64).as_path.name == "x"
 
@@ -43,14 +43,14 @@ def test_command_record_rejects_unknown_phase() -> None:
 
 
 def test_input_ref_validation_and_round_trip() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         InputRef(path="x", size=0, sha256="a" * 64, records=-1)
     ref = InputRef(path="x", size=0, sha256="a" * 64, kind=InputKind.FASTQ)
     assert InputRef.from_dict(ref.to_dict()) == ref
 
 
 def test_issue_validation() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         Issue(code="X", message="x", severity="fatal")  # type: ignore[arg-type]
     issue = Issue(code="X", message="x", severity="error", context={"a": "b"})
     assert Issue.from_dict(issue.to_dict()) == issue

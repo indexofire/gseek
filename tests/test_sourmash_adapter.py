@@ -72,6 +72,38 @@ def _parse(
     return list(SourmashAdapter().parse_distance(ctx))
 
 
+def test_parse_empty_csv_yields_no_records(tmp_path: Path) -> None:
+    # `sourmash search` writes a 0-byte CSV (exit 0) when nothing matches the
+    # threshold: that is a legitimate empty result, not a parse failure.
+    result = tmp_path / "matches.csv"
+    result.write_text("", encoding="utf-8")
+    request = DistanceRequest(query=(_query(tmp_path),), reference=(_targets(tmp_path),))
+    ctx = ParseContext(
+        request=request,  # type: ignore[arg-type]
+        plan=_plan(result=result),
+        workspace=tmp_path,
+        index=_index(),
+    )
+    assert list(SourmashAdapter().parse_distance(ctx)) == []
+
+
+def test_parse_empty_gather_csv_yields_no_records(tmp_path: Path) -> None:
+    result = tmp_path / "matches.csv"
+    result.write_text("", encoding="utf-8")
+    request = DistanceRequest(
+        query=(_query(tmp_path),),
+        reference=(_targets(tmp_path),),
+        params={"mode": "gather"},
+    )
+    ctx = ParseContext(
+        request=request,  # type: ignore[arg-type]
+        plan=_plan(result=result),
+        workspace=tmp_path,
+        index=_index(),
+    )
+    assert list(SourmashAdapter().parse_distance(ctx)) == []
+
+
 def test_spec_declares_sourmash_capabilities() -> None:
     spec = SourmashAdapter.spec
     assert spec.name == "sourmash"
@@ -311,3 +343,17 @@ def test_parse_gather_preserves_name_and_unique_fraction(tmp_path: Path) -> None
     assert record.tags["reference_name"] == "GTDB species"
     assert record.tags["f_unique_weighted"] == "0.25"
     assert record.tags["reference_md5"] == "abc123"
+
+
+def test_parse_rejects_stream_input_explicitly(tmp_path: Path) -> None:
+    # The protocol accepts `stream`, but this adapter only parses CSV result
+    # files; silently ignoring a supplied stream would hide caller bugs.
+    request = DistanceRequest(query=(_query(tmp_path),), reference=(_targets(tmp_path),))
+    ctx = ParseContext(
+        request=request,  # type: ignore[arg-type]
+        plan=_plan(),
+        workspace=tmp_path,
+        index=_index(),
+    )
+    with pytest.raises(UnsupportedFeatureError, match="stream"):
+        list(SourmashAdapter().parse_distance(ctx, iter(["similarity,md5"])))

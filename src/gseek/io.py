@@ -319,9 +319,12 @@ def merge_fasta(
     input set, and adapter/gseek versions are part of the key.
     """
     if width < 1:
-        raise ValueError("width must be >= 1")
+        raise InputError(f"width must be >= 1, got {width}")
     if on_duplicate not in ("error", "first", "prefix", "allow"):
-        raise ValueError(f"unknown on_duplicate policy: {on_duplicate!r}")
+        raise InputError(
+            f"unknown on_duplicate policy: {on_duplicate!r}; "
+            "expected one of error/first/prefix/allow"
+        )
     expanded = expand_fasta_paths(paths)
     if sort_files:
         expanded = tuple(sorted(expanded, key=lambda item: str(item.resolve())))

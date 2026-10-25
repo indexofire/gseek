@@ -10,12 +10,13 @@ from .alignment import (
 )
 from .common import FileRef, InputRef, Issue, ToolRef
 from .distance import DistanceRecord, DistanceResult, DistanceStats
-from .run import CommandRecord, IndexRef, RunManifest
+from .run import CommandPhase, CommandRecord, IndexRef, RunManifest
 
 __all__ = [
     "AlignmentRecord",
     "AlignmentResult",
     "AlignmentStats",
+    "CommandPhase",
     "CommandRecord",
     "DistanceRecord",
     "DistanceResult",

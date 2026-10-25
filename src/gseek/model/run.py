@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from gseek.errors import ManifestError
 from gseek.types import RUN_SCHEMA, JsonValue, RunStatus
@@ -93,8 +93,14 @@ class CommandRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CommandRecord:
+        phase = str(data["phase"])
+        if phase not in ("index", "align", "distance"):
+            raise ManifestError(
+                f"invalid command phase: {phase!r}",
+                context={"phase": phase},
+            )
         return cls(
-            phase=str(data["phase"]),  # type: ignore[arg-type]
+            phase=cast(CommandPhase, phase),
             label=str(data["label"]),
             argv=tuple(str(item) for item in data.get("argv", ())),
             cwd=str(data["cwd"]) if data.get("cwd") is not None else None,

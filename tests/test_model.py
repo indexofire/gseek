@@ -81,6 +81,40 @@ def test_record_validation() -> None:
         AlignmentRecord(query_id="q", target_id="t", query_start=5, query_end=4)
 
 
+def _alignment_record(**extra: Any) -> AlignmentRecord:
+    return AlignmentRecord(query_id="q", target_id="t", **extra)
+
+
+def _distance_record(**extra: Any) -> DistanceRecord:
+    return DistanceRecord(query_id="q", reference_id="r", **extra)
+
+
+def test_record_rejects_non_finite_floats() -> None:
+    # NaN compares False against everything and would crash canonical JSON
+    # hashing far away from its origin; reject it at the model boundary.
+    for field, value in (
+        ("evalue", float("nan")),
+        ("bit_score", float("inf")),
+        ("identity", float("nan")),
+        ("query_coverage", float("nan")),
+        ("depth", float("inf")),
+    ):
+        with pytest.raises(InputError, match=field):
+            _alignment_record(**{field: value})
+
+
+def test_distance_record_rejects_non_finite_floats() -> None:
+    for field, value in (
+        ("distance", float("nan")),
+        ("pvalue", float("inf")),
+        ("containment", float("nan")),
+        ("aligned_fraction", float("inf")),
+        ("ani", float("nan")),
+    ):
+        with pytest.raises(InputError, match=field):
+            _distance_record(**{field: value})
+
+
 def test_result_sorts_records_and_picks_best_per_pair() -> None:
     low = _record(identity=80.0)
     high = _record(identity=99.0, target_start=30, target_end=90)
@@ -229,3 +263,18 @@ def test_input_ref_round_trip() -> None:
         compressed=False,
     )
     assert InputRef.from_dict(reference.to_dict()) == reference
+
+
+def test_tags_participate_in_record_equality() -> None:
+    # tags carry identity provenance (NM, identity_method): records differing
+    # only in tags are distinct observations, consistent with stable_key().
+    base = {"query_id": "q", "target_id": "t", "identity": 99.0}
+    plain = AlignmentRecord(**base)
+    same = AlignmentRecord(**base)
+    with_nm = AlignmentRecord(**base, tags={"NM": "3"})
+    assert plain == same
+    assert plain != with_nm
+    # Hashing must stay usable (tags stay out of the hash; equal records
+    # still hash equally, so the eq/hash contract holds).
+    assert hash(plain) == hash(same)
+    assert len({plain, same, with_nm}) == 2

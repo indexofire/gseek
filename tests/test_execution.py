@@ -77,6 +77,19 @@ def test_stream_raises_on_nonzero_exit() -> None:
         process.wait()
 
 
+def test_stream_wait_allows_slow_finalizer() -> None:
+    # A tool may close stdout (EOF for us) and still need time to finalize;
+    # EOF must not translate into an immediate SIGKILL (exit -9).
+    executor = Executor()
+    code = "import os, sys, time; print('x', flush=True); os.close(1); time.sleep(2)"
+    plan = CommandPlan(argv=_python(code), label="slow-finalize")
+    with executor.stream(plan) as process:
+        lines = list(process.iter_lines())
+        result = process.wait()
+    assert lines == ["x"]
+    assert result.returncode == 0
+
+
 def test_command_plan_validation() -> None:
     with pytest.raises(InputError):
         CommandPlan(argv=())

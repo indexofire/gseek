@@ -1,27 +1,25 @@
 """Small parsing helpers shared by concrete adapters.
 
 No adapter-specific policy lives here: just tab/tag splitting, CIGAR arithmetic,
-and nucleotide reverse-complement. These helpers are intentionally pure and
+and nucleotide helpers. These helpers are intentionally pure and
 unit-testable without external tools.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from gseek.errors import ParseError
 
+if TYPE_CHECKING:
+    from gseek.adapter import ParseContext
+
 _CIGAR_RE = re.compile(r"(\d+)([MIDNSHP=X])")
 _COMPLEMENT = str.maketrans("ACGTUNacgtun", "TGCAANtgcaan")
-
-
-def reverse_complement(sequence: str, *, preserve_case: bool = True) -> str:
-    """Return the reverse complement of a nucleotide sequence."""
-    if preserve_case:
-        return sequence.translate(_COMPLEMENT)[::-1]
-    return sequence.upper().translate(_COMPLEMENT)[::-1]
 
 
 def iter_data_lines(
@@ -205,10 +203,40 @@ def parse_cigar(cigar: str) -> CigarStats:
 
 __all__ = [
     "CigarStats",
+    "float_or_none",
     "iter_data_lines",
     "parse_cigar",
     "parse_sam_tags",
     "parse_tag_fields",
-    "reverse_complement",
+    "result_lines",
     "split_tab",
 ]
+
+
+def result_lines(
+    ctx: ParseContext,
+    stream: Iterable[str] | None,
+) -> Iterator[str]:
+    """Yield tool output lines from *stream* when streaming, else result files."""
+    if stream is not None:
+        yield from stream
+        return
+    for path in ctx.plan.result_files:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            yield from handle
+
+
+def float_or_none(value: str | None) -> float | None:
+    """Parse an optional tool-provided float; absent/unparseable becomes None.
+
+    Non-finite values (``nan``/``inf``) also become ``None``: the normalized
+    record model rejects them, and a pathological tool field must not crash an
+    otherwise complete parse.
+    """
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None

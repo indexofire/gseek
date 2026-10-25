@@ -14,7 +14,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines
+from gseek.adapters.base import iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement, supports
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -126,6 +126,14 @@ class SkaniAdapter(BaseAdapter):
             argv.extend(["search", "-d", str(index_dir / index.entry)])
             inputs = [str(path.resolve()) for path in request.query]
         else:
+            if len(request.query) != 1:
+                # `skani dist A B C` treats the first positional as the only
+                # query and every remaining file as a reference; passing
+                # multiple queries would silently misattribute them.
+                raise UnsupportedFeatureError(
+                    "skani dist supports exactly one query file; use an index or one query per run",
+                    context={"query_count": str(len(request.query))},
+                )
             argv.append("dist")
             inputs = [
                 *(str(path.resolve()) for path in request.query),
@@ -163,7 +171,7 @@ class SkaniAdapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[DistanceRecord]:
-        for line_number, line in iter_data_lines(_result_lines(ctx, stream), skip_prefixes=()):
+        for line_number, line in iter_data_lines(result_lines(ctx, stream), skip_prefixes=()):
             if line.startswith("Ref_file\t") or line == _SKANI_HEADER:
                 continue
             fields = line.split("\t")
@@ -231,18 +239,6 @@ def _validate_distance_params(params: Mapping[str, JsonValue]) -> dict[str, Json
             context={"params": ", ".join(sorted(unknown))},
         )
     return {str(key): value for key, value in params.items()}
-
-
-def _result_lines(
-    ctx: ParseContext,
-    stream: Iterable[str] | None,
-) -> Iterator[str]:
-    if stream is not None:
-        yield from stream
-        return
-    for path in ctx.plan.result_files:
-        with path.open(encoding="utf-8", errors="replace") as handle:
-            yield from handle
 
 
 ADAPTER = SkaniAdapter

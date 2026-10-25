@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -36,7 +37,8 @@ class DistanceRecord:
     jaccard: float | None = None
     ani: float | None = None
     aligned_fraction: float | None = None
-    tags: Mapping[str, str] = field(default_factory=dict, compare=False, hash=False)
+    # See AlignmentRecord.tags: provenance participates in equality, not hash.
+    tags: Mapping[str, str] = field(default_factory=dict, compare=True, hash=False)
 
     def __post_init__(self) -> None:
         if not self.query_id or not self.reference_id:
@@ -48,8 +50,12 @@ class DistanceRecord:
             ("jaccard", self.jaccard),
             ("aligned_fraction", self.aligned_fraction),
         ):
+            if value is not None and not math.isfinite(value):
+                raise InputError(f"{name} must be finite, got {value}")
             if value is not None and value < 0:
                 raise InputError(f"{name} must be non-negative, got {value}")
+        if self.ani is not None and not math.isfinite(self.ani):
+            raise InputError(f"ani must be finite, got {self.ani}")
         if self.ani is not None and not 0.0 <= self.ani <= 100.0:
             raise InputError(f"ani must be in [0, 100], got {self.ani}")
         if self.shared_hashes is not None and self.shared_hashes < 0:

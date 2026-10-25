@@ -176,6 +176,13 @@ class KmaAdapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[AlignmentRecord]:
+        if not isinstance(ctx.request, AlignRequest):  # pragma: no cover
+            raise ParseError("alignment parser received a non-alignment request")
+        if stream is not None:
+            raise UnsupportedFeatureError(
+                "KMA parses its .res result file; streaming input is not supported",
+                context={"backend": "kma"},
+            )
         path = ctx.plan.result_files[0] if ctx.plan.result_files else None
         if path is None or not path.is_file():
             raise ParseError(

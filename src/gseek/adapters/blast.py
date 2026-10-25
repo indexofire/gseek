@@ -8,15 +8,16 @@ from gseek.adapter import (
     AlignPlan,
     AlignRequest,
     BaseAdapter,
+    DistanceRequest,
     IndexPlan,
     IndexRequest,
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines
-from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement
-from gseek.errors import ParseError, UnsupportedFeatureError
-from gseek.execution import CommandPlan
+from gseek.adapters.base import iter_data_lines, result_lines
+from gseek.capabilities import BackendSpec, Capabilities, ToolchainProbe, ToolRequirement
+from gseek.errors import ParseError, ToolNotFoundError, ToolVersionError, UnsupportedFeatureError
+from gseek.execution import CommandPlan, version_at_least
 from gseek.io import merge_fasta
 from gseek.model import AlignmentRecord, IndexRef
 from gseek.types import IndexScope, InputKind, JsonValue, Molecule, OutputKind, Strand
@@ -163,6 +164,37 @@ class BlastAdapter(BaseAdapter):
     def index_params(self, params: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
         return {"dbtype": _dbtype_for(params)}
 
+    def validate_tools(
+        self,
+        request: AlignRequest | DistanceRequest,
+        probe: ToolchainProbe,
+    ) -> None:
+        """Gate the task binary: optional spec tools bypass the strict probe."""
+        assert isinstance(request, AlignRequest)
+        task = _task_from(_validated_params(request.params))
+        binary = _TASK_TO_BINARY[task]
+        tool = next((entry for entry in probe.tools if entry.name == binary), None)
+        if tool is None or tool.path is None:
+            raise ToolNotFoundError(
+                f"BLAST task {task!r} requires the {binary!r} binary",
+                hint="install BLAST+ (conda-forge/bioconda package `blast`)",
+                context={"backend": "blast", "task": task, "binary": binary},
+            )
+        if not tool.ok:
+            raise ToolVersionError(
+                f"BLAST task {task!r} requires a working {binary!r}: {tool.error}",
+                hint="install BLAST+ (conda-forge/bioconda package `blast`)",
+                context={"backend": "blast", "task": task, "binary": binary},
+            )
+        minimum = (2, 11, 0) if task.endswith("-fast") else (2, 2, 30)
+        if not version_at_least(tool.version, minimum):
+            raise ToolVersionError(
+                f"BLAST task {task!r} needs {binary} >= {'.'.join(map(str, minimum))}, "
+                f"found {tool.version or 'unknown'}",
+                hint="upgrade BLAST+ to 2.11+ for -fast tasks",
+                context={"backend": "blast", "task": task, "binary": binary},
+            )
+
     def plan_index(self, request: IndexRequest, ctx: PlanContext) -> IndexPlan:
         params = _validated_params(request.params)
         dbtype = _dbtype_for(params)
@@ -298,8 +330,11 @@ class BlastAdapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[AlignmentRecord]:
+        if not isinstance(ctx.request, AlignRequest):  # pragma: no cover
+            raise ParseError("alignment parser received a non-alignment request")
         target_filter = ctx.request.target_filter
-        lines = _result_lines(ctx, stream)
+
+        lines = result_lines(ctx, stream)
         path = str(ctx.plan.result_files[0]) if ctx.plan.result_files else None
         for line_number, line in iter_data_lines(lines, skip_prefixes=("#",)):
             fields = line.split("\t")
@@ -326,10 +361,14 @@ class BlastAdapter(BaseAdapter):
                 bitscore = float(fields[12])
                 qlen = int(fields[13])
                 slen = int(fields[14])
-                if len(fields) > len(_OUTFMT_FIELDS):
+                # The parser knows whether sseq was requested (the plan built
+                # the outfmt from the same flag); trusting the column count
+                # instead would let unescaped tabs in stitle leak title text
+                # into target_aligned.
+                if bool(ctx.request.params.get("sseq")):
                     stitle = "\t".join(fields[15:-1]).strip() or None
                     sseq = fields[-1].strip() or None
-                else:  # older 16-column fixtures without sseq
+                else:
                     stitle = "\t".join(fields[15:]).strip() or None
                     sseq = None
             except (TypeError, ValueError) as exc:
@@ -400,18 +439,6 @@ def _dbtype_for(params: Mapping[str, JsonValue]) -> str:
             context={"task": task, "dbtype": str(explicit)},
         )
     return expected
-
-
-def _result_lines(
-    ctx: ParseContext,
-    stream: Iterable[str] | None,
-) -> Iterator[str]:
-    if stream is not None:
-        yield from stream
-        return
-    for path in ctx.plan.result_files:
-        with path.open(encoding="utf-8", errors="replace") as handle:
-            yield from handle
 
 
 ADAPTER = BlastAdapter

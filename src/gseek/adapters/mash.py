@@ -14,7 +14,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines
+from gseek.adapters.base import iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement, supports
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -122,6 +122,13 @@ class MashAdapter(BaseAdapter):
             reference_sketch = reference_prefix.with_suffix(".msh")
 
         if mode == "screen":
+            if len(request.query) != 1:
+                # Screen output rows carry no query-file column; attributing
+                # them to query[0] would silently mislabel every record.
+                raise UnsupportedFeatureError(
+                    "mash screen requires a single query file (pool reads first)",
+                    context={"query_count": str(len(request.query))},
+                )
             screen_argv = [
                 "mash",
                 "screen",
@@ -192,10 +199,20 @@ class MashAdapter(BaseAdapter):
         ctx: ParseContext,
         stream: Iterable[str] | None = None,
     ) -> Iterator[DistanceRecord]:
-        k = str(ctx.request.params.get("k", _DEFAULT_K))
-        sketch_size = str(ctx.request.params.get("sketch_size", _DEFAULT_SKETCH_SIZE))
-        mode = str(ctx.request.params.get("mode", "dist")).lower()
-        for line_number, line in iter_data_lines(_result_lines(ctx, stream), skip_prefixes=()):
+        request = ctx.request
+        if not isinstance(request, DistanceRequest):  # pragma: no cover
+            raise ParseError("distance parser received a non-distance request")
+        if request.external_reference:
+            # The pre-built reference sketch may use different parameters than
+            # the request; recording request values would misdescribe the
+            # comparison actually performed.
+            k = "unknown"
+            sketch_size = "unknown"
+        else:
+            k = str(request.params.get("k", _DEFAULT_K))
+            sketch_size = str(request.params.get("sketch_size", _DEFAULT_SKETCH_SIZE))
+        mode = str(request.params.get("mode", "dist")).lower()
+        for line_number, line in iter_data_lines(result_lines(ctx, stream), skip_prefixes=()):
             fields = line.split("\t")
             if len(fields) < 5:
                 raise ParseError(
@@ -318,18 +335,6 @@ def _validate_params(params: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
             context={"params": ", ".join(sorted(unknown))},
         )
     return {str(key): value for key, value in params.items()}
-
-
-def _result_lines(
-    ctx: ParseContext,
-    stream: Iterable[str] | None,
-) -> Iterator[str]:
-    if stream is not None:
-        yield from stream
-        return
-    for path in ctx.plan.result_files:
-        with path.open(encoding="utf-8", errors="replace") as handle:
-            yield from handle
 
 
 ADAPTER = MashAdapter

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from gseek.errors import InputError
 from gseek.types import InputKind, JsonValue
 
 IssueSeverity = Literal["warning", "error"]
@@ -27,9 +28,9 @@ class FileRef:
 
     def __post_init__(self) -> None:
         if self.size < 0:
-            raise ValueError(f"file size must be non-negative, got {self.size}")
+            raise InputError(f"file size must be non-negative, got {self.size}")
         if not is_sha256_hex(self.sha256):
-            raise ValueError(f"sha256 must be 64 hex characters, got {self.sha256!r}")
+            raise InputError(f"sha256 must be 64 hex characters, got {self.sha256!r}")
 
     @property
     def as_path(self) -> Path:
@@ -56,7 +57,7 @@ class InputRef(FileRef):
         # which breaks zero-argument super() on Python 3.12.
         FileRef.__post_init__(self)
         if self.records is not None and self.records < 0:
-            raise ValueError(f"record count must be non-negative, got {self.records}")
+            raise InputError(f"record count must be non-negative, got {self.records}")
 
     def to_dict(self) -> dict[str, JsonValue]:
         data = FileRef.to_dict(self)
@@ -125,7 +126,7 @@ class Issue:
 
     def __post_init__(self) -> None:
         if self.severity not in ("warning", "error"):
-            raise ValueError(f"invalid issue severity: {self.severity!r}")
+            raise InputError(f"invalid issue severity: {self.severity!r}")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {

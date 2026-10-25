@@ -14,7 +14,7 @@ from typing import Protocol, runtime_checkable
 
 from gseek.capabilities import BackendSpec, ToolchainProbe, ToolRequirement, supports
 from gseek.errors import ToolNotFoundError, ToolVersionError, UnsupportedFeatureError
-from gseek.execution import CommandPlan, ToolProbe, ToolResolver
+from gseek.execution import CommandPlan, ToolProbe, ToolResolver, checked_workspace_parts
 from gseek.index import IndexPolicy
 from gseek.io import detect_input_kind
 from gseek.model import AlignmentRecord, IndexRef, InputRef, ToolRef
@@ -114,7 +114,7 @@ class PlanContext:
     target_refs: tuple[InputRef, ...] = ()
 
     def path(self, *parts: str) -> Path:
-        target = self.workspace.joinpath(*parts)
+        target = self.workspace.joinpath(*checked_workspace_parts(self.workspace, parts))
         target.parent.mkdir(parents=True, exist_ok=True)
         return target
 
@@ -143,7 +143,9 @@ class AlignPlan:
 class ParseContext:
     """Everything a parser needs to normalize one result set."""
 
-    request: AlignRequest
+    # Alignment parsers receive an AlignRequest, distance parsers a
+    # DistanceRequest; the union keeps the protocol honest without casts.
+    request: AlignRequest | DistanceRequest
     plan: AlignPlan
     workspace: Path
     index: IndexRef | None = None
@@ -206,6 +208,21 @@ class BaseAdapter:
     """Shared validation/probing helpers for concrete adapters."""
 
     spec: BackendSpec
+
+    def validate_tools(
+        self,
+        request: AlignRequest | DistanceRequest,
+        probe: ToolchainProbe,
+    ) -> None:
+        """Raise when *request* needs a tool the *probe* shows unusable.
+
+        The strict :meth:`probe` already gates non-optional tools; adapters
+        whose requests pick among optional binaries (BLAST task binaries)
+        override this to gate the right one with the right minimum version.
+        The probe result is passed in so custom probe implementations and
+        test doubles keep working.
+        """
+        del request, probe
 
     def probe(self, resolver: ToolResolver, *, strict: bool = False) -> ToolchainProbe:
         """Resolve and version-check every declared tool."""

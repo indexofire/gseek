@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from gseek.errors import InputError
 from gseek.types import (
     Interval,
     covered_fraction,
@@ -22,9 +23,9 @@ def test_interval_basic_properties() -> None:
 
 
 def test_interval_validation() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         Interval(-1, 5)
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         Interval(5, 4)
 
 
@@ -37,9 +38,9 @@ def test_union_length_handles_overlap_adjacency_and_containment() -> None:
 
 
 def test_union_length_rejects_invalid_tuples() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         union_length([(-1, 5)])
-    with pytest.raises(ValueError):
+    with pytest.raises(InputError):
         union_length([(5, 4)])
 
 

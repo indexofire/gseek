@@ -19,7 +19,7 @@ from gseek.adapter import (
 )
 from gseek.api import verify
 from gseek.capabilities import ToolchainProbe
-from gseek.errors import IndexBuildError
+from gseek.errors import ConfigError, ExecutionError, IndexBuildError, InputError
 from gseek.execution import CommandPlan, Executor, ToolProbe
 from gseek.index import IndexPolicy, IndexStore
 from gseek.model import AlignmentRecord, IndexRef
@@ -409,3 +409,95 @@ def test_record_manifest_false_skips_query_record_counts(fasta_pair, tmp_path: P
         record_manifest=False,
     )
     assert result.inputs[0].records is None
+
+
+def test_bad_manifest_path_fails_before_any_command(fasta_pair, tmp_path: Path) -> None:
+    # Config errors must fail fast: no probe, no index build, no alignment.
+    from conftest import FakeAdapter
+
+    calls: list[str] = []
+
+    class SpyAdapter(FakeAdapter):
+        def probe(self, resolver, *, strict: bool = False):  # type: ignore[no-untyped-def]
+            calls.append("probe")
+            return super().probe(resolver, strict=strict)
+
+        def plan_align(self, request, index, ctx):  # type: ignore[no-untyped-def]
+            calls.append("plan_align")
+            return super().plan_align(request, index, ctx)
+
+    query, target = fasta_pair
+    with pytest.raises(InputError, match="manifest path"):
+        run_alignment(
+            AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+            adapter=SpyAdapter(),
+            manifest_path=tmp_path / "manifest.txt",
+        )
+    assert calls == []
+
+
+def test_manifest_path_requires_record_manifest_fails_fast(fasta_pair, tmp_path: Path) -> None:
+    from conftest import FakeAdapter
+
+    query, target = fasta_pair
+    with pytest.raises(ConfigError, match="record_manifest"):
+        run_alignment(
+            AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+            adapter=FakeAdapter(),
+            manifest_path=tmp_path / "manifest.json",
+            record_manifest=False,
+        )
+
+
+def test_failed_run_still_writes_failed_manifest(fasta_pair, tmp_path: Path) -> None:
+    # A crashed run must leave an audit trail: commands that ran + FAILED.
+    from conftest import FakeAdapter
+
+    class CrashingAdapter(FakeAdapter):
+        def plan_align(self, request, index, ctx):  # type: ignore[no-untyped-def]
+            from gseek.execution import CommandPlan
+
+            command = CommandPlan(
+                argv=(sys.executable, "-c", "import sys; sys.exit(7)"),
+                label="doomed",
+            )
+            return AlignPlan(commands=(command,), stream=True)
+
+    query, target = fasta_pair
+    destination = tmp_path / "failed.json"
+    with pytest.raises(ExecutionError):
+        run_alignment(
+            AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+            adapter=CrashingAdapter(),
+            manifest_path=destination,
+        )
+    document = json.loads(destination.read_text(encoding="utf-8"))
+    assert document["status"] == "failed"
+    assert document["errors"]
+    assert document["commands"], "executed commands must be audited"
+    assert any(command["exit_code"] == 7 for command in document["commands"])
+
+
+def test_required_tools_gate_missing_optional_binary(fasta_pair, tmp_path: Path) -> None:
+    # Optional spec tools bypass the strict probe; a request that actually
+    # needs one must fail fast with an actionable error, not at subprocess
+    # spawn (or worse, run an outdated binary).
+    from conftest import FakeAdapter
+    from gseek.errors import ToolNotFoundError
+
+    class NeedsMissingTool(FakeAdapter):
+        def validate_tools(self, request, probe):  # type: ignore[no-untyped-def]
+            raise ToolNotFoundError(
+                "backend 'fake' requires 'gseek-nonexistent-tool-x'",
+                hint="install gseek-nonexistent-tool-x",
+                context={"backend": "fake", "binary": "gseek-nonexistent-tool-x"},
+            )
+
+    query, target = fasta_pair
+    with pytest.raises(ToolNotFoundError) as exc_info:
+        run_alignment(
+            AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+            adapter=NeedsMissingTool(),
+        )
+    assert "gseek-nonexistent-tool-x" in str(exc_info.value)
+    assert exc_info.value.hint

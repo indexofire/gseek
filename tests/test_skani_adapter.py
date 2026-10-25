@@ -135,6 +135,33 @@ def test_plan_distance_without_index(tmp_path: Path) -> None:
     assert argv[-1] == str(_targets(tmp_path))
 
 
+def test_plan_distance_rejects_multiple_queries_without_index(tmp_path: Path) -> None:
+    # `skani dist Q1 Q2 R1` treats Q2 as a *reference* (first positional is the
+    # only query), silently losing Q2's comparisons and fabricating Q1-vs-Q2.
+    with pytest.raises(UnsupportedFeatureError):
+        SkaniAdapter().plan_distance(
+            DistanceRequest(
+                query=(_query(tmp_path), _query(tmp_path)),
+                reference=(_targets(tmp_path),),
+            ),
+            None,
+            PlanContext(workspace=tmp_path / "work"),
+        )
+
+
+def test_plan_distance_allows_multiple_queries_with_index(tmp_path: Path) -> None:
+    plan = SkaniAdapter().plan_distance(
+        DistanceRequest(
+            query=(_query(tmp_path), _query(tmp_path)),
+            reference=(_targets(tmp_path),),
+        ),
+        _index(),
+        PlanContext(workspace=tmp_path / "work", index_dir=tmp_path / "idx"),
+    )
+    argv = plan.commands[0].argv
+    assert argv[:2] == ("skani", "search")
+
+
 def test_plan_distance_rejects_fastq(tmp_path: Path) -> None:
     reads = tmp_path / "reads.fq"
     reads.write_text("@r1\nACGT\n+\nIIII\n", encoding="utf-8")

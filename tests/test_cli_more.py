@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -180,3 +183,17 @@ def test_invalid_param_and_backend(fasta_pair, capsys) -> None:
     code = main(["align", "--backend", "unknown", "--query", str(query), "--target", str(target)])
     assert code == 2
     assert json.loads(capsys.readouterr().err)["code"] == "CONFIG_ERROR"
+
+
+def test_python_dash_m_entry_point() -> None:
+    # `python -m gseek` must work (covers gseek/__main__.py).
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "gseek", "--version"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+        timeout=60,
+    )
+    assert completed.returncode == 0
+    assert completed.stdout.strip().startswith("gseek ")

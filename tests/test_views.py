@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from gseek.errors import UsageError
 from gseek.model import AlignmentRecord, AlignmentResult, AlignmentStats, Issue
 from gseek.views import (
     count_distinct_occurrences,
@@ -102,7 +103,7 @@ def test_count_distinct_occurrences() -> None:
 
 def test_to_tsv_rejects_unknown_columns() -> None:
     result = _result(())
-    with pytest.raises(ValueError):
+    with pytest.raises(UsageError):
         to_tsv(result, columns=("query_id", "nope"))
 
 
