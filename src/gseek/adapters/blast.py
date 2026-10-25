@@ -161,7 +161,7 @@ class BlastAdapter(BaseAdapter):
         dbtype = _dbtype_for(params)
         index_dir = (ctx.index_dir or ctx.workspace).resolve()
         index_dir.mkdir(parents=True, exist_ok=True)
-        merged = merge_fasta(request.target, index_dir / "targets.fasta")
+        merged = merge_fasta(request.target, index_dir / "targets.fasta", on_duplicate="allow")
         prefix = index_dir / "targets"
         command = CommandPlan(
             argv=(
@@ -211,7 +211,7 @@ class BlastAdapter(BaseAdapter):
             db_path = index_dir / index.entry
             subject_args = ("-db", str(db_path))
         else:
-            merged = merge_fasta(request.target, ctx.path("targets.fasta"))
+            merged = merge_fasta(request.target, ctx.path("targets.fasta"), on_duplicate="allow")
             subject_args = ("-subject", str(merged.resolve()))
 
         argv: list[str] = [

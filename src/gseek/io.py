@@ -19,7 +19,7 @@ from gseek.types import InputKind
 _FASTA_SUFFIXES = frozenset({".fa", ".fasta", ".fna", ".ffn", ".frn", ".fas", ".fsa", ".faa"})
 _FASTQ_SUFFIXES = frozenset({".fq", ".fastq"})
 _COMPRESSION_SUFFIXES = frozenset({".gz", ".bz2", ".xz"})
-_DuplicatePolicy = Literal["error", "first", "prefix"]
+_DuplicatePolicy = Literal["error", "first", "prefix", "allow"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,8 +310,9 @@ def merge_fasta(
     """Merge FASTA files into a deterministic, atomically published *dest*.
 
     IDs are preserved verbatim. Duplicate IDs across files are an error by
-    default; ``on_duplicate="first"`` keeps the first occurrence and
-    ``"prefix"`` rewrites later collisions as ``<file-stem>|<id>``.
+    default; ``on_duplicate="first"`` keeps the first occurrence,
+    ``"prefix"`` rewrites later collisions as ``<file-stem>|<id>``, and
+    ``"allow"`` keeps every record (BLAST accepts duplicate subject IDs).
 
     This is the canonical target materialization used before indexing. Index
     keys hash the original target files; merging is deterministic for a given
@@ -319,7 +320,7 @@ def merge_fasta(
     """
     if width < 1:
         raise ValueError("width must be >= 1")
-    if on_duplicate not in ("error", "first", "prefix"):
+    if on_duplicate not in ("error", "first", "prefix", "allow"):
         raise ValueError(f"unknown on_duplicate policy: {on_duplicate!r}")
     expanded = expand_fasta_paths(paths)
     if sort_files:
@@ -344,6 +345,15 @@ def merge_fasta(
                             },
                         )
                     if on_duplicate == "first":
+                        continue
+                    if on_duplicate == "allow":
+                        seen.setdefault(sequence_id, source)
+                        _write_fasta_record(
+                            handle,
+                            SequenceRecord(sequence_id, record.sequence, record.description),
+                            width=width,
+                            uppercase=uppercase,
+                        )
                         continue
                     sequence_id = f"{source.stem}|{sequence_id}"
                     if sequence_id in seen:

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-25
+
+### Fixed
+
+- BLAST target materialization now allows duplicate subject IDs. VFDB contains
+  16 repeated IDs with distinct sequences; legacy BLAST databases accept them,
+  and rejecting them broke a real consumer (gapit).
+
 ## [0.7.0] - 2026-10-25
 
 ### Added

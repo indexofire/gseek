@@ -111,6 +111,11 @@ def test_merge_fasta_duplicate_policies(tmp_path: Path) -> None:
     assert "same" in ids
     assert any(sequence_id.startswith("b|") for sequence_id in ids)
 
+    merge_fasta([first, second], dest, on_duplicate="allow")
+    records = read_fasta(dest)
+    assert [record.sequence_id for record in records] == ["same", "same"]
+    assert {record.sequence for record in records} == {"AAAA", "CCCC"}
+
 
 def test_merge_fasta_expands_directory(tmp_path: Path) -> None:
     directory = tmp_path / "targets"
