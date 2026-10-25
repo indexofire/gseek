@@ -32,6 +32,7 @@ from gseek.execution import (
     CommandPlan,
     Executor,
     ProcessResult,
+    StreamedProcess,
     ToolProbe,
     ToolResolver,
     create_workspace,
@@ -177,6 +178,22 @@ def _run_commands(
             raise
         records.append(_command_record(result, phase=phase))
     return tuple(records)
+
+
+def _execution_like(
+    exc: GseekError,
+    process: StreamedProcess | None,
+) -> ExecutionError:
+    """Wrap a non-execution failure with the streamed process's outcome."""
+    wrapper = ExecutionError(
+        f"{exc.code}: {exc.message}",
+        context={"cause": exc.code},
+    )
+    wrapper.argv = ()
+    wrapper.returncode = process.returncode if process is not None else None
+    wrapper.stderr = (process.stderr if process is not None else "")[-64_000:]
+    wrapper.timed_out = False
+    return wrapper
 
 
 def _command_record_from_error(
@@ -379,6 +396,7 @@ def _build_manifest(
             "kind": "alignment" if isinstance(request, AlignRequest) else "distance",
             "threads": request.threads,
             "paired": isinstance(request, AlignRequest) and request.paired,
+            "index_policy": request.index_policy.value,
             "external_reference": (
                 isinstance(request, DistanceRequest) and request.external_reference
             ),
@@ -386,8 +404,27 @@ def _build_manifest(
     )
 
 
+_SHARED_RESOLVER: ToolResolver | None = None
+
+
+def _default_resolver() -> ToolResolver:
+    """Process-level default resolver.
+
+    Probing spawns one subprocess per tool (~40ms each): creating a fresh
+    resolver per API call re-paid that cost on every invocation (~240ms for
+    the BLAST suite). Tool versions do not change within a process, so the
+    instance cache is safe to share.
+    """
+    global _SHARED_RESOLVER
+    if _SHARED_RESOLVER is None:
+        _SHARED_RESOLVER = ToolResolver()
+    return _SHARED_RESOLVER
+
+
 def _prepare_targets(
     request: AlignRequest | DistanceRequest,
+    *,
+    compute_records: bool = True,
 ) -> tuple[tuple[Path, ...], tuple[InputRef, ...]]:
     raw = request.target if isinstance(request, AlignRequest) else request.reference
     if isinstance(request, DistanceRequest) and request.external_reference:
@@ -400,7 +437,7 @@ def _prepare_targets(
             return files, refs
         return files, input_refs(files, kind=InputKind.SKETCH, compute_records=False)
     files = expand_fasta_paths(raw)
-    return files, input_refs(files, compute_records=True)
+    return files, input_refs(files, compute_records=compute_records)
 
 
 def _external_ref(path: Path, sha256: str, size: int) -> InputRef:
@@ -468,7 +505,7 @@ def run_alignment(
     align_adapter: AlignmentAdapter = selected
     spec = align_adapter.spec
 
-    resolver = resolver or ToolResolver()
+    resolver = resolver or _default_resolver()
     executor = executor or Executor()
     store = store or IndexStore()
     probe = align_adapter.probe(resolver, strict=True)
@@ -478,7 +515,7 @@ def run_alignment(
     )
 
     query_refs = _prepare_queries(request, compute_records=record_manifest)
-    target_files, target_refs = _prepare_targets(request)
+    target_files, target_refs = _prepare_targets(request, compute_records=record_manifest)
     # Adapters plan indices from the concrete target files, not the user's
     # original directory arguments.
     effective_request = AlignRequest(
@@ -508,6 +545,8 @@ def run_alignment(
         policy=request.index_policy,
     )
     align_commands: tuple[CommandRecord, ...] = ()
+    if index is not None:
+        store.mark_in_use(spec.name, index.key)
 
     workspace = create_workspace(
         prefix=f"gseek-{spec.name}-",
@@ -538,15 +577,28 @@ def run_alignment(
             if not plan.commands:
                 raise ConfigError("streaming alignment plan has no commands")
             leading = _run_commands(plan.commands[:-1], executor, phase="align")
+            align_commands = leading
             last = plan.commands[-1]
+            streamed: StreamedProcess | None = None
             try:
                 with executor.stream(last) as process:
+                    streamed = process
                     parsed = tuple(align_adapter.parse_align(parse_ctx, process.iter_lines()))
                     result = process.wait()
-            except ExecutionError as exc:
-                exc.command_records = (  # type: ignore[attr-defined]
-                    _command_record_from_error(last, exc, phase="align"),
-                )
+            except GseekError as exc:
+                # Audit whatever ran: ExecutionError carries structured fields;
+                # parse failures fall back to the (closed) process state.
+                if not getattr(exc, "command_records", None):
+                    exc.command_records = (  # type: ignore[attr-defined]
+                        _command_record_from_error(
+                            last,
+                            exc
+                            if isinstance(exc, ExecutionError)
+                            else _execution_like(exc, streamed),
+                            phase="align",
+                        ),
+                    )
+                align_commands = (*leading, *getattr(exc, "command_records", ()))
                 raise
             align_commands = (*leading, _command_record(result, phase="align"))
             records = parsed
@@ -656,7 +708,7 @@ def run_distance(
     distance_adapter: DistanceAdapter = selected
     spec = distance_adapter.spec
 
-    resolver = resolver or ToolResolver()
+    resolver = resolver or _default_resolver()
     executor = executor or Executor()
     store = store or IndexStore()
     probe = distance_adapter.probe(resolver, strict=True)
@@ -666,7 +718,7 @@ def run_distance(
     )
 
     query_refs = _prepare_queries(request, compute_records=record_manifest)
-    target_files, target_refs = _prepare_targets(request)
+    target_files, target_refs = _prepare_targets(request, compute_records=record_manifest)
     effective_request = DistanceRequest(
         query=request.query,
         reference=target_files,
@@ -695,6 +747,8 @@ def run_distance(
         policy=request.index_policy,
     )
     distance_commands: tuple[CommandRecord, ...] = ()
+    if index is not None:
+        store.mark_in_use(spec.name, index.key)
 
     workspace = create_workspace(
         prefix=f"gseek-{spec.name}-",
@@ -725,15 +779,28 @@ def run_distance(
             if not plan.commands:
                 raise ConfigError("streaming distance plan has no commands")
             leading = _run_commands(plan.commands[:-1], executor, phase="distance")
+            distance_commands = leading
             last = plan.commands[-1]
+            streamed: StreamedProcess | None = None
             try:
                 with executor.stream(last) as process:
+                    streamed = process
                     parsed = tuple(distance_adapter.parse_distance(parse_ctx, process.iter_lines()))
                     result = process.wait()
-            except ExecutionError as exc:
-                exc.command_records = (  # type: ignore[attr-defined]
-                    _command_record_from_error(last, exc, phase="distance"),
-                )
+            except GseekError as exc:
+                if not getattr(exc, "command_records", None):
+                    exc.command_records = (  # type: ignore[attr-defined]
+                        _command_record_from_error(
+                            last,
+                            (
+                                exc
+                                if isinstance(exc, ExecutionError)
+                                else _execution_like(exc, streamed)
+                            ),
+                            phase="distance",
+                        ),
+                    )
+                distance_commands = (*leading, *getattr(exc, "command_records", ()))
                 raise
             distance_commands = (*leading, _command_record(result, phase="distance"))
             records = parsed

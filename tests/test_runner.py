@@ -19,7 +19,7 @@ from gseek.adapter import (
 )
 from gseek.api import verify
 from gseek.capabilities import ToolchainProbe
-from gseek.errors import ConfigError, ExecutionError, IndexBuildError, InputError
+from gseek.errors import ConfigError, ExecutionError, IndexBuildError, InputError, ParseError
 from gseek.execution import CommandPlan, Executor, ToolProbe
 from gseek.index import IndexPolicy, IndexStore
 from gseek.model import AlignmentRecord, IndexRef
@@ -501,3 +501,49 @@ def test_required_tools_gate_missing_optional_binary(fasta_pair, tmp_path: Path)
         )
     assert "gseek-nonexistent-tool-x" in str(exc_info.value)
     assert exc_info.value.hint
+
+
+def test_default_resolver_is_shared_between_calls(fasta_pair) -> None:
+    # Re-probing every tool on every call costs ~240ms for the blast suite;
+    # the default resolver must be a process-level singleton.
+    from gseek import runner as runner_module
+
+    first = runner_module._default_resolver()
+    second = runner_module._default_resolver()
+    assert first is second
+
+
+def test_targets_skip_record_counting_when_manifest_off(fasta_pair, tmp_path: Path) -> None:
+    # record_manifest=False must skip counting for targets too, not just
+    # queries: counting is a full text scan that never feeds the index key.
+    query, target = fasta_pair
+    result = run_alignment(
+        AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+        adapter=FakeAdapter(),
+        record_manifest=False,
+    )
+    assert all(ref.records is None for ref in result.targets)
+
+
+def test_parse_failure_manifest_audits_streamed_command(fasta_pair, tmp_path: Path) -> None:
+    # A parser blowing up mid-stream must still audit the command that ran
+    # (and any leading commands), not just ExecutionErrors.
+    from conftest import FakeAdapter
+
+    class BadParseAdapter(FakeAdapter):
+        def parse_align(self, ctx, stream=None):  # type: ignore[no-untyped-def]
+            for _ in stream or ():
+                pass
+            raise ParseError("boom", line_number=1)
+
+    query, target = fasta_pair
+    destination = tmp_path / "parse-failed.json"
+    with pytest.raises(ParseError):
+        run_alignment(
+            AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+            adapter=BadParseAdapter(),
+            manifest_path=destination,
+        )
+    document = json.loads(destination.read_text(encoding="utf-8"))
+    assert document["status"] == "failed"
+    assert document["commands"], "streamed command must be audited on parse failure"

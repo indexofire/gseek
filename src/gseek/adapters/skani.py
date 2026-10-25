@@ -14,7 +14,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines, result_lines
+from gseek.adapters.base import finite_float, iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement, supports
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -182,9 +182,9 @@ class SkaniAdapter(BaseAdapter):
                     raw_line=line,
                 )
             try:
-                ani = float(fields[2])
-                fraction_ref = float(fields[3])
-                fraction_query = float(fields[4])
+                ani = finite_float(fields[2])
+                fraction_ref = finite_float(fields[3])
+                fraction_query = finite_float(fields[4])
             except (TypeError, ValueError) as exc:
                 raise ParseError(
                     f"invalid skani numeric field: {exc}",

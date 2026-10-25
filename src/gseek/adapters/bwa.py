@@ -250,6 +250,12 @@ class BwaAdapter(BaseAdapter):
             target_id = fields[2]
             if target_id == "*":
                 continue
+            # Filter before the expensive CIGAR/tags work: secondary rows and
+            # filtered targets would be discarded right after parsing anyway.
+            if secondary_mode == "no" and (flag & 0x100):
+                continue
+            if target_filter is not None and target_id not in target_filter:
+                continue
             try:
                 pos = int(fields[3])
                 mapq = int(fields[4])
@@ -281,10 +287,6 @@ class BwaAdapter(BaseAdapter):
             tags = parse_sam_tags(fields[11:])
             is_primary = not bool(flag & 0x100)
             is_supplementary = bool(flag & 0x800)
-            if secondary_mode == "no" and not is_primary:
-                continue
-            if target_filter is not None and target_id not in target_filter:
-                continue
 
             strand = Strand.MINUS if flag & 0x10 else Strand.PLUS
             query_start: int | None = None
@@ -385,15 +387,17 @@ def _sam_lines(
     if stream is not None:
         for line_number, raw in enumerate(stream, start=1):
             line = raw.rstrip("\r\n")
-            if line:
-                yield line_number, line
+            if not line.strip():
+                continue
+            yield line_number, line
         return
     for path in ctx.plan.result_files:
         with path.open(encoding="utf-8", errors="replace") as handle:
             for line_number, raw in enumerate(handle, start=1):
                 line = raw.rstrip("\r\n")
-                if line:
-                    yield line_number, line
+                if not line.strip():
+                    continue
+                yield line_number, line
 
 
 ADAPTER = BwaAdapter

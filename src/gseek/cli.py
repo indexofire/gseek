@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -14,7 +15,6 @@ from gseek.api import align, backends, distance, replay, verify
 from gseek.errors import GseekError, UsageError, render_error
 from gseek.execution import ToolResolver
 from gseek.index import IndexPolicy, IndexStore
-from gseek.io import atomic_write_text
 from gseek.provenance import read_manifest, to_jsonable
 from gseek.registry import get_backend
 from gseek.types import InputKind, JsonValue
@@ -126,6 +126,13 @@ def _parse_params(items: Sequence[str]) -> dict[str, JsonValue]:
             value: Any = json.loads(raw)
         except json.JSONDecodeError:
             value = raw
+        if isinstance(value, float) and not math.isfinite(value):
+            # NaN/Infinity parse fine but crash canonical JSON mid-run with
+            # a bare ValueError far from the user's --param.
+            raise UsageError(
+                f"--param {key} must be a finite number, got {raw}",
+                context={"param": key},
+            )
         params[key] = value
     return params
 
@@ -300,11 +307,15 @@ def _cmd_run(args: argparse.Namespace, *, distance_mode: bool) -> int:
     else:
         result = align(target=tuple(args.target), paired=args.paired, **common)
     document = result.to_dict(include_manifest=False)
-    text = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
     if args.output is not None:
-        atomic_write_text(args.output, text)
-    else:
-        print(text, end="")
+        # Stream to the file instead of building the whole indented document
+        # in memory (million-record results would triple peak RSS).
+        with args.output.open("w", encoding="utf-8") as handle:
+            json.dump(document, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        return 0
+    json.dump(document, sys.stdout, indent=2, ensure_ascii=False)
+    sys.stdout.write("\n")
     return 0
 
 

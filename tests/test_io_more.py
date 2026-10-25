@@ -115,3 +115,47 @@ def test_atomic_write_bytes(tmp_path: Path) -> None:
     path = tmp_path / "x.bin"
     atomic_write_bytes(path, b"\x00\x01")
     assert path.read_bytes() == b"\x00\x01"
+
+
+def test_truncated_gzip_raises_typed_parse_error(tmp_path: Path) -> None:
+    # A truncated .gz must surface as ParseError with the path, not a bare
+    # EOFError from gzip internals.
+    import gzip as _gzip
+
+    whole = tmp_path / "ok.fa.gz"
+    with _gzip.open(whole, "wb") as handle:
+        handle.write(b">q1\nACGTACGT\n" * 100)
+    truncated = tmp_path / "bad.fa.gz"
+    truncated.write_bytes(whole.read_bytes()[: whole.stat().st_size // 2])
+
+    from gseek.io import iter_fasta
+
+    with pytest.raises(ParseError, match=r"truncat|UTF-8|corrupt"):
+        list(iter_fasta(truncated))
+
+
+def test_expand_fasta_paths_sort_param_is_honored(tmp_path: Path) -> None:
+    from gseek.io import expand_fasta_paths
+
+    b = tmp_path / "b.fa"
+    b.write_text(">b\nA\n", encoding="utf-8")
+    a = tmp_path / "a.fa"
+    a.write_text(">a\nA\n", encoding="utf-8")
+    assert expand_fasta_paths([b, a]) == (a, b)
+    assert expand_fasta_paths([b, a], sort=False) == (b, a), "user order must survive"
+
+
+def test_atomic_write_permissions_follow_umask(tmp_path: Path) -> None:
+    import os
+
+    from gseek.io import atomic_write_text
+
+    destination = tmp_path / "out.json"
+    atomic_write_text(destination, "{}\n")
+    mode = destination.stat().st_mode & 0o777
+    0o666 & ~os.umask(0o022) if False else None  # computed below
+    import os as _os
+
+    mask = _os.umask(0)
+    _os.umask(mask)
+    assert mode == 0o666 & ~mask, f"got {oct(mode)}, expected user-umask default"

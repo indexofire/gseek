@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from gseek.errors import InputError
+from gseek.errors import InputError, ParseError
 
 # ---------------------------------------------------------------------------
 # Schema identifiers (independent from the package version)
@@ -131,7 +131,23 @@ class Interval:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Interval:
-        return cls(start=int(data["start"]), end=int(data["end"]))
+        try:
+            start_raw = data["start"]
+            end_raw = data["end"]
+        except KeyError as exc:
+            raise ParseError(
+                f"interval is missing the {exc.args[0]!r} field",
+                context={"field": str(exc.args[0])},
+            ) from exc
+        if not isinstance(start_raw, int) or not isinstance(end_raw, int):
+            # Silent int() truncation of floats would shift coordinates.
+            raise ParseError(
+                f"interval fields must be integers, got start={start_raw!r}, end={end_raw!r}",
+                context={"start": repr(start_raw), "end": repr(end_raw)},
+            )
+        if isinstance(start_raw, bool) or isinstance(end_raw, bool):
+            raise ParseError("interval fields must be integers, not booleans")
+        return cls(start=start_raw, end=end_raw)
 
 
 def union_length(intervals: Iterable[Interval | tuple[int, int]]) -> int:

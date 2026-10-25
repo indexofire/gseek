@@ -6,6 +6,60 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- mash screen no longer truncates reference IDs at `/`: the screen column is
+  a sketch defline, not a path (`Path().name` turned
+  `"...plasmid/pO157"` into `"pO157"`).
+- Replay now restores the recorded `index_policy` (a `--index none` run
+  replays in subject mode); manifests record it in `extra`.
+- `IndexStore.lock` re-validates the lock file inode after acquiring the
+  flock, closing the GC-unlink race where a waiter on an orphaned inode and a
+  new opener could both "hold" the lock.
+- GC no longer deletes indexes with a fresh in-use lease (`mark_in_use`
+  heartbeat; runner refreshes it for every run) — concurrent pipelines cannot
+  lose an index out from under an external tool.
+- The index-build lock timeout is configurable via
+  `GSEEK_INDEX_LOCK_TIMEOUT` (default remains 300s).
+- Truncated/corrupt gzip/xz inputs raise `ParseError` with the path instead
+  of a bare `EOFError`/`LZMAError`; non-UTF-8 input likewise.
+- Records reject intervals beyond the declared sequence length
+  (`query_end > query_length`) instead of silently deriving coverage > 1.0.
+- Adapter parsers reject non-finite floats (`inf`/`nan`) with a contextual
+  `ParseError` (path/line) instead of an unlocalized model `InputError`;
+  KMA's `int(float(...))` overflow is caught too.
+- A parse failure mid-stream now still audits the streamed command (and any
+  leading commands) in the failed-run manifest.
+- `gseek --param x=NaN` fails fast with `UsageError` instead of a bare
+  `ValueError` from canonical JSON deep in the run.
+- Atomic writes fsync the parent directory after rename and apply the user's
+  umask (mkstemp's 0600 leaked onto published files); merge_fasta suppresses
+  secondary close failures so ENOSPC cleanup cannot mask the real error.
+- `expand_fasta_paths(sort=False)` actually preserves caller order now;
+  merge_fasta no longer re-sorts/re-resolves an already-expanded list.
+- `Interval.from_dict` rejects floats/bools/missing keys with `ParseError`
+  instead of silently truncating or raising `KeyError`.
+- `to_jsonable` rejects set elements whose `repr` embeds a memory address
+  (they would silently make recipe_hash process-dependent).
+- summarize_by_target/query use the largest observed length when a group has
+  conflicting lengths, instead of depending on sort position.
+- `AlignmentRecord.from_dict` no longer coerces `is_primary: "false"` to
+  `True` (string bools rejected); record `tags` are immutable
+  (`MappingProxyType`) after construction.
+- bwa parsing skips blank lines (consistent with every other adapter) and
+  filters secondary/filtered-target rows before CIGAR and tags parsing.
+
+### Changed
+- Performance: the default `ToolResolver` is a process-level singleton
+  (~240ms of per-call re-probing eliminated for the BLAST suite); record
+  canonical JSON payloads are cached, making repeated sorts and result
+  hashing ~10x cheaper; `result_hash` streams per-record payloads with
+  byte-identical output; targets skip record counting when
+  `record_manifest=False`; the CLI streams JSON output instead of building
+  the full indented document in memory; mash hoists per-row `Path` work out
+  of parse loops.
+- `AlignmentRecord`/`DistanceRecord` expose `canonical_payload()` (cached
+  canonical JSON used by stable_key and result hashing).
+
 ## [0.10.0] - 2026-10-25
 
 ### Fixed

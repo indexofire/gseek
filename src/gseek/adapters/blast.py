@@ -14,7 +14,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines, result_lines
+from gseek.adapters.base import finite_float, iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolchainProbe, ToolRequirement
 from gseek.errors import ParseError, ToolNotFoundError, ToolVersionError, UnsupportedFeatureError
 from gseek.execution import CommandPlan, version_at_least
@@ -348,7 +348,7 @@ class BlastAdapter(BaseAdapter):
             try:
                 qseqid = fields[0]
                 sseqid = fields[1]
-                pident = float(fields[2])
+                pident = finite_float(fields[2])
                 length = int(fields[3])
                 mismatch = int(fields[4])
                 gapopen = int(fields[5])
@@ -357,8 +357,8 @@ class BlastAdapter(BaseAdapter):
                 qend = int(fields[8])
                 sstart = int(fields[9])
                 send = int(fields[10])
-                evalue = float(fields[11])
-                bitscore = float(fields[12])
+                evalue = finite_float(fields[11])
+                bitscore = finite_float(fields[12])
                 qlen = int(fields[13])
                 slen = int(fields[14])
                 # The parser knows whether sseq was requested (the plan built

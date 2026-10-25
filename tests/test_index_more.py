@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from gseek.errors import CacheError, IndexBuildError
+from gseek.errors import CacheError, IndexBuildError, IndexLockError
 from gseek.index import IndexStore, default_cache_root, tree_size
 
 
@@ -250,3 +250,44 @@ def test_gc_removes_lock_files_after_deletion(tmp_path: Path) -> None:
     assert removed
     assert not (store.index_root / "fake" / key).exists()
     assert not lock_file.exists(), "stale .lock file must not accumulate"
+
+
+def test_lock_env_timeout_override(tmp_path: Path, monkeypatch) -> None:
+    # Large references legitimately take >5min to index; the wait must be
+    # tunable without code changes.
+    import time as _time
+
+    store = IndexStore(tmp_path / "cache")
+    store.index_root.mkdir(parents=True, exist_ok=True)
+    key = "d" * 64
+    with store.lock("fake", key):
+        monkeypatch.setenv("GSEEK_INDEX_LOCK_TIMEOUT", "0.05")
+        started = _time.monotonic()
+        with pytest.raises(IndexLockError), store.lock("fake", key):
+            pass
+        assert _time.monotonic() - started < 5
+
+
+def test_gc_skips_leased_indexes(tmp_path: Path) -> None:
+    # A lease marks an index as in use by a running alignment; GC must not
+    # delete it out from under the external tool reading it.
+    store = IndexStore(tmp_path / "cache")
+    key = "e" * 64
+    staging = store.new_staging("fake", key)
+    (staging / "index.txt").write_text("payload", encoding="utf-8")
+    store.publish(
+        staging,
+        adapter="fake",
+        key=key,
+        adapter_version="1",
+        entry="index.txt",
+        artifacts=("index.txt",),
+        source_sha256="1" * 64,
+        params={},
+        tool_versions={},
+        created_at="2020-01-01T00:00:00",
+    )
+    store.mark_in_use("fake", key)
+    removed = store.gc(max_age_days=0.0, dry_run=False)
+    assert not any(entry.key == key for entry in removed)
+    assert (store.index_root / "fake" / key).exists()

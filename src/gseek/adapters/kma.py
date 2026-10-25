@@ -13,6 +13,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
+from gseek.adapters.base import finite_float
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -231,11 +232,12 @@ class KmaAdapter(BaseAdapter):
                     template = row["Template"]
                     if target_filter is not None and template not in target_filter:
                         continue
-                    target_length = int(float(row["Template_length"]))
-                    identity = float(row["Template_Identity"])
-                    target_coverage = float(row["Template_Coverage"]) / 100.0
-                    query_coverage = float(row["Query_Coverage"]) / 100.0
-                    score = float(row["Score"])
+                    length_value = finite_float(row["Template_length"])
+                    target_length = int(length_value)
+                    identity = finite_float(row["Template_Identity"])
+                    target_coverage = finite_float(row["Template_Coverage"]) / 100.0
+                    query_coverage = finite_float(row["Query_Coverage"]) / 100.0
+                    score = finite_float(row["Score"])
                     depth = float(row["Depth"]) if keep_depth else None
                 except (TypeError, ValueError) as exc:
                     raise ParseError(

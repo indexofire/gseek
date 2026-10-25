@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import cast
@@ -16,6 +17,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
+from gseek.adapters.base import finite_float
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement, supports
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -249,7 +251,7 @@ class SourmashAdapter(BaseAdapter):
                 reference_id = _reference_id(row)
                 query_id = _query_id(row, request)
                 try:
-                    score = float(row.get(score_column) or "")
+                    score = finite_float(row.get(score_column) or "")
                 except (TypeError, ValueError) as exc:
                     raise ParseError(
                         f"invalid sourmash similarity: {exc}",
@@ -307,7 +309,7 @@ def _parse_gather(path: Path, request: DistanceRequest) -> Iterator[DistanceReco
                     line_number=line_number,
                 )
             try:
-                containment = float(row.get("f_orig_query") or "")
+                containment = finite_float(row.get("f_orig_query") or "")
             except (TypeError, ValueError) as exc:
                 raise ParseError(
                     f"invalid sourmash gather f_orig_query: {exc}",
@@ -421,7 +423,10 @@ def _optional_float(value: str | None) -> float | None:
     if not value:
         return None
     try:
-        return float(value)
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            return None
+        return parsed
     except ValueError:
         return None
 

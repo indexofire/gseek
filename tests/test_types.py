@@ -58,3 +58,14 @@ def test_covered_fraction() -> None:
     assert covered_fraction([], 10) == 0.0
     assert covered_fraction([Interval(0, 5)], None) is None
     assert covered_fraction([Interval(0, 5)], 0) is None
+
+
+def test_interval_from_dict_strict_types() -> None:
+    from gseek.errors import ParseError
+
+    good = Interval.from_dict({"start": 1, "end": 5})
+    assert (good.start, good.end) == (1, 5)
+    with pytest.raises(ParseError):
+        Interval.from_dict({"start": 1.9, "end": 5})  # 静默截断必须拒绝
+    with pytest.raises(ParseError):
+        Interval.from_dict({"start": 1})  # 缺 key 不再是裸 KeyError

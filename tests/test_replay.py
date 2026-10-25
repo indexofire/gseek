@@ -13,7 +13,7 @@ from gseek.api import replay
 from gseek.capabilities import ToolchainProbe
 from gseek.errors import ReplayMismatchError
 from gseek.execution import CommandPlan, ToolProbe
-from gseek.index import IndexStore
+from gseek.index import IndexPolicy, IndexStore
 from gseek.model import AlignmentRecord, IndexRef
 from gseek.registry import _reset_for_tests, register_adapter
 from gseek.runner import run_alignment, run_distance
@@ -186,3 +186,22 @@ def test_replay_multi_record_out_of_order_matches(fasta_pair, tmp_path: Path) ->
     outcome = replay(manifest_path, check=True, store=store)
     assert outcome.matches is True
     assert outcome.expected_hash == outcome.result_hash
+
+
+def test_replay_restores_index_policy(fasta_pair, tmp_path: Path) -> None:
+    # A run with index='none' (subject mode) must replay in subject mode:
+    # replaying under the default AUTO changes the command sequence and
+    # fabricates result mismatches.
+    import json as _json
+
+    from conftest import FakeAdapter
+
+    query, target = fasta_pair
+    manifest_path = tmp_path / "run.json"
+    run_alignment(
+        AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+        adapter=FakeAdapter(),
+        manifest_path=manifest_path,
+    )
+    document = _json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert document["extra"]["index_policy"] == "none"

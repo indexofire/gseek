@@ -84,7 +84,7 @@ def _row(
     evalue: str = "0.0",
     bitscore: str = "900",
     qlen: str = "480",
-    slen: str = "480",
+    slen: str = "600",
     stitle: str = "allele one",
 ) -> str:
     return "\t".join(
@@ -201,6 +201,7 @@ def test_parse_forward_reverse_and_gapped_rows(tmp_path: Path) -> None:
             qend="480",
             sstart="979",
             send="500",
+            slen="1000",
             stitle="allele two",
         ),
         _row(
@@ -218,7 +219,7 @@ def test_parse_forward_reverse_and_gapped_rows(tmp_path: Path) -> None:
             evalue="1e-5",
             bitscore="200",
             qlen="100",
-            slen="100",
+            slen="200",
             stitle="gapped",
         ),
     ]
@@ -239,7 +240,7 @@ def test_parse_forward_reverse_and_gapped_rows(tmp_path: Path) -> None:
     assert forward.gap_count == 0
     assert forward.gap_openings == 0
     assert forward.query_coverage == 1.0
-    assert forward.target_coverage == 1.0
+    assert forward.target_coverage == pytest.approx(480 / 600)
     assert forward.target_description == "allele one"
     assert forward.tags["identity_method"] == "blast_pident"
 
@@ -253,7 +254,7 @@ def test_parse_forward_reverse_and_gapped_rows(tmp_path: Path) -> None:
     assert gapped.matches == 95
     assert gapped.mismatches == 3
     assert gapped.gap_count == 2
-    assert gapped.ungapped_target_coverage == pytest.approx(0.98)
+    assert gapped.ungapped_target_coverage == pytest.approx(98 / 200)
 
 
 def test_parser_filters_target_ids(tmp_path: Path) -> None:

@@ -203,6 +203,7 @@ def parse_cigar(cigar: str) -> CigarStats:
 
 __all__ = [
     "CigarStats",
+    "finite_float",
     "float_or_none",
     "iter_data_lines",
     "parse_cigar",
@@ -224,6 +225,19 @@ def result_lines(
     for path in ctx.plan.result_files:
         with path.open(encoding="utf-8", errors="replace") as handle:
             yield from handle
+
+
+def finite_float(value: str) -> float:
+    """Parse a float and reject non-finite values (``inf``/``nan``).
+
+    Raising ``ValueError`` keeps the callers' existing
+    ``except (TypeError, ValueError)`` mapping to a contextful
+    :class:`~gseek.errors.ParseError` instead of an unlocalized model error.
+    """
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"non-finite value: {value!r}")
+    return parsed
 
 
 def float_or_none(value: str | None) -> float | None:

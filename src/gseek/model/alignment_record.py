@@ -6,6 +6,7 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from gseek.errors import InputError
@@ -77,6 +78,9 @@ class AlignmentRecord:
     # participate in equality; they stay out of __hash__ (mappings are
     # unhashable), which keeps the eq/hash contract intact.
     tags: Mapping[str, str] = field(default_factory=dict, compare=True, hash=False)
+    # Cached canonical JSON payload (lazily built): stable_key ordering and
+    # result hashing serialize each record exactly once. Never compared.
+    _payload_cache: str = field(default="", compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.query_id:
@@ -100,9 +104,23 @@ class AlignmentRecord:
         _validate_optional_coverage("query_coverage", self.query_coverage)
         _validate_optional_coverage("target_coverage", self.target_coverage)
 
-        for start_name, end_name, start, end in (
-            ("query_start", "query_end", self.query_start, self.query_end),
-            ("target_start", "target_end", self.target_start, self.target_end),
+        for start_name, end_name, length_name, start, end, length in (
+            (
+                "query_start",
+                "query_end",
+                "query_length",
+                self.query_start,
+                self.query_end,
+                self.query_length,
+            ),
+            (
+                "target_start",
+                "target_end",
+                "target_length",
+                self.target_start,
+                self.target_end,
+                self.target_length,
+            ),
         ):
             if (start is None) != (end is None):
                 raise InputError(f"{start_name} and {end_name} must be provided together")
@@ -111,6 +129,12 @@ class AlignmentRecord:
                     raise InputError(f"{start_name} must be >= 0, got {start}")
                 if end < start:
                     raise InputError(f"{end_name} ({end}) precedes {start_name} ({start})")
+                # Out-of-bounds intervals would silently derive coverage > 1.
+                if length is not None and end > length:
+                    raise InputError(
+                        f"{end_name} ({end}) exceeds {length_name} ({length})",
+                        context={"query_id": self.query_id, "target_id": self.target_id},
+                    )
 
         if self.query_coverage is None and self.query_interval is not None and self.query_length:
             object.__setattr__(
@@ -125,7 +149,7 @@ class AlignmentRecord:
                 self.target_interval.length / self.target_length,
             )
 
-        object.__setattr__(self, "tags", dict(self.tags))
+        object.__setattr__(self, "tags", MappingProxyType(dict(self.tags)))
 
     # ------------------------------------------------------------------
     # Derived coordinates and metrics
@@ -235,6 +259,24 @@ class AlignmentRecord:
             -(self.aligned_length or 0),
         )
 
+    def canonical_payload(self) -> str:
+        """Canonical JSON of this record (cached).
+
+        Uses the exact parameters of :func:`gseek.provenance.canonical_json`
+        so a streaming hash over payloads is byte-identical to hashing the
+        serialized record list in one shot.
+        """
+        payload = self._payload_cache
+        if not payload:
+            payload = json.dumps(
+                self.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            )
+            object.__setattr__(self, "_payload_cache", payload)
+        return payload
+
     def stable_key(self) -> tuple[str, str, int, int, str, int, str]:
         """Total ordering key, including a canonical JSON tie-breaker.
 
@@ -243,13 +285,7 @@ class AlignmentRecord:
         with thread count, so the final JSON component makes the order (and
         therefore ``result_hash``) independent of parser order.
         """
-        payload = json.dumps(
-            self.to_dict(),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        )
-        return (*self.sort_key(), payload)
+        return (*self.sort_key(), self.canonical_payload())
 
     def quality_key(self) -> tuple[float, int, float, float]:
         """Key used by best-hit views: identity, length, then coverage."""

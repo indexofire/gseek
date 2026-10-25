@@ -6,9 +6,11 @@ import bz2
 import gzip
 import lzma
 import os
+import re
 import tempfile
+import zlib
 from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Literal
@@ -18,6 +20,7 @@ from gseek.types import InputKind
 
 _FASTA_SUFFIXES = frozenset({".fa", ".fasta", ".fna", ".ffn", ".frn", ".fas", ".fsa", ".faa"})
 _FASTQ_SUFFIXES = frozenset({".fq", ".fastq"})
+_WHITESPACE_RE = re.compile(r"\s")
 _COMPRESSION_SUFFIXES = frozenset({".gz", ".bz2", ".xz"})
 _DuplicatePolicy = Literal["error", "first", "prefix", "allow"]
 
@@ -37,7 +40,7 @@ class SequenceRecord:
     def __post_init__(self) -> None:
         if not self.sequence_id:
             raise InputError("sequence ID must not be empty")
-        if any(char.isspace() for char in self.sequence_id):
+        if _WHITESPACE_RE.search(self.sequence_id):
             raise InputError(f"sequence ID must not contain whitespace: {self.sequence_id!r}")
 
     @property
@@ -54,6 +57,27 @@ def strip_compression_suffix(path: Path) -> Path:
 
 def is_compressed(path: Path) -> bool:
     return path.suffix.lower() in _COMPRESSION_SUFFIXES
+
+
+@contextmanager
+def _stream_guard(path: Path) -> Iterator[None]:
+    """Translate mid-stream decompression/decoding failures into ParseError.
+
+    Truncated gzip/xz files raise bare ``EOFError``/``LZMAError`` deep inside
+    iteration; they must surface as typed errors carrying the path.
+    """
+    try:
+        yield
+    except (EOFError, zlib.error, lzma.LZMAError) as exc:
+        raise ParseError(
+            f"input stream is truncated or corrupt: {path}: {exc}",
+            path=str(path),
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise ParseError(
+            f"input is not valid UTF-8 text: {path}: {exc}",
+            path=str(path),
+        ) from exc
 
 
 @contextmanager
@@ -111,6 +135,10 @@ def detect_input_kind(path: Path, *, probe_content: bool = True) -> InputKind:
         raise InputError(
             f"cannot read input file {path}: {exc}", context={"path": str(path)}
         ) from exc
+    except (EOFError, zlib.error, lzma.LZMAError) as exc:
+        raise ParseError(
+            f"input stream is truncated or corrupt: {path}: {exc}", path=str(path)
+        ) from exc
 
     raise InputError(
         f"cannot determine sequence format (expected '>' or '@'): {path}",
@@ -124,7 +152,7 @@ def iter_fasta(path: Path) -> Iterator[SequenceRecord]:
     current_description = ""
     chunks: list[str] = []
 
-    with open_text(path) as handle:
+    with _stream_guard(path), open_text(path) as handle:
         for line_number, raw_line in enumerate(handle, start=1):
             line = raw_line.rstrip("\r\n")
             if not line.strip():
@@ -169,7 +197,7 @@ def iter_fastq(path: Path) -> Iterator[SequenceRecord]:
     consumes standard four-line records, and strict parsing catches corrupt
     files early. Gzip/bzip2/xz inputs are transparently decompressed.
     """
-    with open_text(path) as handle:
+    with _stream_guard(path), open_text(path) as handle:
         line_number = 0
         while True:
             header = handle.readline()
@@ -238,7 +266,7 @@ def count_records(path: Path, kind: InputKind | None = None) -> int:
     kind = kind or detect_input_kind(path)
     if kind is InputKind.FASTA:
         count = 0
-        with open_text(path) as handle:
+        with _stream_guard(path), open_text(path) as handle:
             for line in handle:
                 if line.startswith(">"):
                     count += 1
@@ -246,8 +274,12 @@ def count_records(path: Path, kind: InputKind | None = None) -> int:
     return sum(1 for _ in iter_fastq(path))
 
 
-def expand_fasta_paths(paths: Iterable[Path]) -> tuple[Path, ...]:
-    """Expand files/directories into a deterministic FASTA file list."""
+def expand_fasta_paths(paths: Iterable[Path], *, sort: bool = True) -> tuple[Path, ...]:
+    """Expand files/directories into a deterministic FASTA file list.
+
+    ``sort=False`` keeps the caller's order (directory contents are still
+    sorted: directory iteration order is arbitrary).
+    """
     expanded: list[Path] = []
     for path in paths:
         if path.is_dir():
@@ -268,6 +300,8 @@ def expand_fasta_paths(paths: Iterable[Path]) -> tuple[Path, ...]:
             raise InputError(f"input path not found: {path}", context={"path": str(path)})
     if not expanded:
         raise InputError("no target FASTA files supplied")
+    if not sort:
+        return tuple(expanded)
     return tuple(sorted(expanded, key=lambda item: str(item.resolve())))
 
 
@@ -325,9 +359,7 @@ def merge_fasta(
             f"unknown on_duplicate policy: {on_duplicate!r}; "
             "expected one of error/first/prefix/allow"
         )
-    expanded = expand_fasta_paths(paths)
-    if sort_files:
-        expanded = tuple(sorted(expanded, key=lambda item: str(item.resolve())))
+    expanded = expand_fasta_paths(paths, sort=sort_files)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary = _atomic_text_writer(dest)
@@ -374,13 +406,35 @@ def merge_fasta(
         handle.flush()
         os.fsync(handle.fileno())
     except BaseException:
-        handle.close()
+        # close() re-flushes and may raise again (ENOSPC), which would mask
+        # the real failure and leak the temporary file.
+        with suppress(OSError):
+            handle.close()
         temporary.unlink(missing_ok=True)
         raise
     else:
-        handle.close()
-        os.replace(temporary, dest)
+        with suppress(OSError):  # pragma: no cover - close after clean flush
+            handle.close()
+        _atomic_publish(temporary, dest)
     return dest
+
+
+def _atomic_publish(temporary: Path, destination: Path) -> None:
+    """chmod-per-rename-per-dirsync: the visible file must be durable."""
+    mask = os.umask(0)
+    os.umask(mask)
+    os.chmod(temporary, 0o666 & ~mask)
+    os.replace(temporary, destination)
+    try:
+        descriptor = os.open(destination.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:  # pragma: no cover - exotic filesystems
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:  # pragma: no cover - not all filesystems support it
+        pass
+    finally:
+        os.close(descriptor)
 
 
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
@@ -397,7 +451,7 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        _atomic_publish(temporary, path)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
@@ -417,7 +471,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        _atomic_publish(temporary, path)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise

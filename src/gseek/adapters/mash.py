@@ -14,7 +14,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines, result_lines
+from gseek.adapters.base import finite_float, iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement, supports
 from gseek.errors import ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
@@ -212,6 +212,7 @@ class MashAdapter(BaseAdapter):
             k = str(request.params.get("k", _DEFAULT_K))
             sketch_size = str(request.params.get("sketch_size", _DEFAULT_SKETCH_SIZE))
         mode = str(request.params.get("mode", "dist")).lower()
+        query_stem = request.query[0].stem
         for line_number, line in iter_data_lines(result_lines(ctx, stream), skip_prefixes=()):
             fields = line.split("\t")
             if len(fields) < 5:
@@ -222,11 +223,11 @@ class MashAdapter(BaseAdapter):
                 )
             if mode == "screen":
                 try:
-                    identity = float(fields[0])
+                    identity = finite_float(fields[0])
                     shared_raw, _, total_raw = fields[1].partition("/")
                     shared = int(shared_raw)
                     total = int(total_raw)
-                    pvalue = float(fields[3])
+                    pvalue = finite_float(fields[3])
                 except (TypeError, ValueError) as exc:
                     raise ParseError(
                         f"invalid mash field: {exc}",
@@ -234,8 +235,10 @@ class MashAdapter(BaseAdapter):
                         raw_line=line,
                     ) from exc
                 yield DistanceRecord(
-                    query_id=ctx.request.query[0].stem,
-                    reference_id=_display_id(fields[4]),
+                    query_id=query_stem,
+                    # Screen column 5 is the sketch *defline*, not a path:
+                    # Path().name would truncate descriptions containing '/'.
+                    reference_id=fields[4].strip(),
                     distance=max(0.0, 1.0 - identity),
                     pvalue=pvalue,
                     shared_hashes=shared,
@@ -251,8 +254,8 @@ class MashAdapter(BaseAdapter):
                 )
                 continue
             try:
-                distance = float(fields[2])
-                pvalue = float(fields[3])
+                distance = finite_float(fields[2])
+                pvalue = finite_float(fields[3])
                 shared_raw, _, total_raw = fields[4].partition("/")
                 shared = int(shared_raw)
                 total = int(total_raw)
@@ -280,7 +283,8 @@ class MashAdapter(BaseAdapter):
 
 
 def _display_id(value: str) -> str:
-    return Path(value).name if value else value
+    # rsplit is ~25x cheaper than Path().name and this runs per dist row.
+    return value.rsplit("/", 1)[-1] if value else value
 
 
 def _sketch_argv(

@@ -177,10 +177,10 @@ class AlignmentResult:
 
         summaries: list[TargetSummary] = []
         for target_id, rows in grouped.items():
-            target_length = next(
-                (row.target_length for row in rows if row.target_length is not None),
-                None,
-            )
+            # Conflicting lengths for one ID must not silently depend on which
+            # record happens to sort first: the largest observed wins.
+            lengths = [row.target_length for row in rows if row.target_length is not None]
+            target_length = max(lengths) if lengths else None
             intervals = [row.target_interval for row in rows if row.target_interval is not None]
             covered = union_length(intervals)
             breadth = covered / target_length if target_length else None
@@ -237,10 +237,9 @@ class AlignmentResult:
 
         summaries: list[QuerySummary] = []
         for query_id, rows in grouped.items():
-            query_length = next(
-                (row.query_length for row in rows if row.query_length is not None),
-                None,
-            )
+            # See summarize_by_target: largest observed length, not first-sorted.
+            lengths = [row.query_length for row in rows if row.query_length is not None]
+            query_length = max(lengths) if lengths else None
             best = max(rows, key=AlignmentRecord.quality_key) if rows else None
             summaries.append(
                 QuerySummary(

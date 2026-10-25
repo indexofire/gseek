@@ -197,3 +197,15 @@ def test_python_dash_m_entry_point() -> None:
     )
     assert completed.returncode == 0
     assert completed.stdout.strip().startswith("gseek ")
+
+
+def test_parse_params_rejects_non_finite_numbers() -> None:
+    # NaN/Infinity would crash canonical JSON mid-run with a bare ValueError.
+    from gseek.cli import _parse_params
+    from gseek.errors import UsageError
+
+    with pytest.raises(UsageError, match="finite"):
+        _parse_params(["x=NaN"])
+    with pytest.raises(UsageError, match="finite"):
+        _parse_params(["y=Infinity"])
+    assert _parse_params(["z=1e5", "w=text"]) == {"z": 1e5, "w": "text"}

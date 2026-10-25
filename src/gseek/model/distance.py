@@ -6,6 +6,7 @@ import json
 import math
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from gseek.errors import InputError
@@ -39,6 +40,8 @@ class DistanceRecord:
     aligned_fraction: float | None = None
     # See AlignmentRecord.tags: provenance participates in equality, not hash.
     tags: Mapping[str, str] = field(default_factory=dict, compare=True, hash=False)
+    # Cached canonical JSON payload (see AlignmentRecord.canonical_payload).
+    _payload_cache: str = field(default="", compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.query_id or not self.reference_id:
@@ -62,7 +65,7 @@ class DistanceRecord:
             raise InputError("shared_hashes must be non-negative")
         if self.total_hashes is not None and self.total_hashes < 0:
             raise InputError("total_hashes must be non-negative")
-        object.__setattr__(self, "tags", dict(self.tags))
+        object.__setattr__(self, "tags", MappingProxyType(dict(self.tags)))
 
     @property
     def metric(self) -> str | None:
@@ -76,15 +79,22 @@ class DistanceRecord:
             self.distance if self.distance is not None else float("inf"),
         )
 
+    def canonical_payload(self) -> str:
+        """Canonical JSON of this record (cached)."""
+        payload = self._payload_cache
+        if not payload:
+            payload = json.dumps(
+                self.to_dict(),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            )
+            object.__setattr__(self, "_payload_cache", payload)
+        return payload
+
     def stable_key(self) -> tuple[str, str, float, str]:
         """Total ordering key with a canonical JSON tie-breaker."""
-        payload = json.dumps(
-            self.to_dict(),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        )
-        return (*self.sort_key, payload)
+        return (*self.sort_key, self.canonical_payload())
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {

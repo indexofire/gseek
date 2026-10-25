@@ -239,6 +239,7 @@ def test_parse_primary_and_secondary_rows(tmp_path: Path) -> None:
             tname="arcC_2",
             tstart="100",
             tend="580",
+            tlen="600",
             nmatch="470",
             mapq="0",
             tags=("tp:A:S", "NM:i:10", "cg:Z:100M2I3D5M"),

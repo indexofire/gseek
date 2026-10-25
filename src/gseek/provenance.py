@@ -160,6 +160,16 @@ def to_jsonable(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
         # Sets have no defined iteration order; sort by a stable representation
         # so canonical JSON and content hashes do not depend on PYTHONHASHSEED.
+        # Objects whose repr embeds an address would silently make the hash
+        # process-dependent: reject them instead.
+        for item in value:
+            if not isinstance(item, (str, int, float, bool, bytes, type(None), Enum)):
+                raise InputError(
+                    "sets passed to canonical JSON must contain only stable scalars"
+                    " (str/int/float/bool/bytes/None), "
+                    f"got {type(item).__name__}",
+                    context={"element_type": type(item).__name__},
+                )
         ordered = sorted(value, key=lambda item: (type(item).__name__, repr(item)))
         return [to_jsonable(item) for item in ordered]
     if isinstance(value, (list, tuple)):
@@ -332,20 +342,38 @@ def recipe_hash(
 
 
 def result_hash(records: Sequence[AlignmentRecord]) -> str:
-    """Canonical hash of normalized alignment records (order-independent)."""
-    ordered = sorted(records, key=AlignmentRecord.stable_key)
-    return sha256_json([record.to_dict() for record in ordered])
+    """Canonical hash of normalized alignment records (order-independent).
+
+    Streams one cached canonical payload per record instead of materializing
+    the full JSON document: byte-identical to hashing the serialized list in
+    one shot (``json.dumps`` of a list is ``"[" + ",".join(items) + "]"``),
+    with O(1) extra memory.
+    """
+    digest = hashlib.sha256()
+    digest.update(b"[")
+    for position, record in enumerate(sorted(records, key=AlignmentRecord.stable_key)):
+        if position:
+            digest.update(b",")
+        digest.update(record.canonical_payload().encode("utf-8"))
+    digest.update(b"]")
+    return digest.hexdigest()
+
+
+def distance_result_hash(records: Sequence[DistanceRecord]) -> str:
+    """Canonical hash of normalized distance records (order-independent)."""
+    digest = hashlib.sha256()
+    digest.update(b"[")
+    for position, record in enumerate(sorted(records, key=DistanceRecord.stable_key)):
+        if position:
+            digest.update(b",")
+        digest.update(record.canonical_payload().encode("utf-8"))
+    digest.update(b"]")
+    return digest.hexdigest()
 
 
 def alignment_result_hash(records: Sequence[AlignmentRecord]) -> str:
     """Canonical hash of normalized alignment records."""
     return result_hash(records)
-
-
-def distance_result_hash(records: Sequence[DistanceRecord]) -> str:
-    """Canonical hash of normalized distance records (order-independent)."""
-    ordered = sorted(records, key=DistanceRecord.stable_key)
-    return sha256_json([record.to_dict() for record in ordered])
 
 
 # ---------------------------------------------------------------------------

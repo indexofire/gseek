@@ -243,3 +243,50 @@ def test_command_record_from_dict_rejects_bad_phase() -> None:
                 "duration_s": 0.0,
             }
         )
+
+
+def test_result_hash_streaming_matches_bulk() -> None:
+    # The streaming hash must be byte-identical to the previous bulk
+    # implementation: replay --check against pre-0.11 manifests depends on it.
+    import hashlib
+
+    from gseek.model import AlignmentRecord as AR
+
+    def bulk_hash(records):
+        ordered = sorted(records, key=AR.stable_key)
+        return hashlib.sha256(
+            __import__("gseek.provenance", fromlist=["canonical_json"])
+            .canonical_json([r.to_dict() for r in ordered])
+            .encode("utf-8")
+        ).hexdigest()
+
+    records = [
+        AR(
+            query_id=f"q{i % 7}",
+            target_id=f"t{i % 3}",
+            identity=90.0 + i % 10,
+            query_start=i % 50,
+            query_end=(i % 50) + 10,
+            query_length=100,
+            target_start=0,
+            target_end=10,
+            target_length=200,
+            tags={"NM": str(i % 5), "café": "naïve"},
+        )
+        for i in range(500)
+    ]
+    assert alignment_result_hash(records) == bulk_hash(records)
+
+
+def test_to_jsonable_rejects_unstable_set_elements() -> None:
+    # Objects with default reprs carry memory addresses: their presence would
+    # silently make recipe_hash process-dependent.
+    from gseek.errors import InputError
+
+    class Unstable:
+        pass
+
+    with pytest.raises(InputError):
+        to_jsonable({Unstable()})
+    # Stable order: by type name, then repr.
+    assert to_jsonable({"b", 1, None}) == [None, 1, "b"]

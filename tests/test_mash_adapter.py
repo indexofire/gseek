@@ -313,3 +313,41 @@ def test_external_reference_tags_mark_unknown_sketch_params(tmp_path: Path) -> N
     record = next(iter(MashAdapter().parse_distance(ctx)))
     assert record.tags["k"] == "unknown"
     assert record.tags["sketch_size"] == "unknown"
+
+
+def test_screen_preserves_defline_with_slash(tmp_path: Path) -> None:
+    # mash screen col 5 is the sketch defline, not a path: Path().name would
+    # turn "…plasmid/pO157" into "pO157", silently corrupting reference_id.
+    result = tmp_path / "screen.tsv"
+    result.write_text(
+        "0.99\t10/1000\t5\t1e-20\tGCF_000195955.2 E.coli plasmid/pO157\n",
+        encoding="utf-8",
+    )
+    request = DistanceRequest(
+        query=(_query(tmp_path),),
+        reference=(_targets(tmp_path),),
+        params={"mode": "screen"},
+    )
+    ctx = ParseContext(
+        request=request,  # type: ignore[arg-type]
+        plan=_plan(stream=True, result=result),
+        workspace=tmp_path,
+    )
+    record = next(iter(MashAdapter().parse_distance(ctx)))
+    assert record.reference_id == "GCF_000195955.2 E.coli plasmid/pO157"
+
+
+def test_non_finite_fields_raise_parse_error_with_context(tmp_path: Path) -> None:
+    # "inf"/"nan" bypass the adapter's ValueError branch and would explode at
+    # the model layer as an InputError with no path/line context.
+    result = tmp_path / "dist.tsv"
+    result.write_text("ref.msh\tquery.fa\tinf\t1.0\t100/1000\n", encoding="utf-8")
+    request = DistanceRequest(query=(_query(tmp_path),), reference=(_targets(tmp_path),))
+    ctx = ParseContext(
+        request=request,  # type: ignore[arg-type]
+        plan=_plan(stream=True, result=result),
+        workspace=tmp_path,
+    )
+    with pytest.raises(ParseError) as exc_info:
+        list(MashAdapter().parse_distance(ctx))
+    assert exc_info.value.line_number == 1

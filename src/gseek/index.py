@@ -36,6 +36,8 @@ except ImportError:  # pragma: no cover - Windows
 
 _DEFAULT_LOCK_TIMEOUT_S = 300.0
 _LOCK_POLL_S = 0.1
+_LEASE_FILE = ".inuse"
+_LEASE_FRESH_S = 3600.0
 
 
 class IndexPolicy(StrEnum):
@@ -92,9 +94,29 @@ def compute_index_key(
     return sha256_json(payload)
 
 
+def _lock_timeout_from_env() -> float:
+    """Lock timeout in seconds, overridable via GSEEK_INDEX_LOCK_TIMEOUT."""
+    raw = os.environ.get("GSEEK_INDEX_LOCK_TIMEOUT", "")
+    if raw:
+        with suppress(ValueError):
+            value = float(raw)
+            if value > 0:
+                return value
+    return _DEFAULT_LOCK_TIMEOUT_S
+
+
 def _valid_key(key: str) -> bool:
     """Reject keys that would escape the adapter cache directory."""
     return bool(key) and "/" not in key and "\\" not in key and ".." not in key
+
+
+def _lease_is_fresh(index_dir: Path) -> bool:
+    """True when the in-use lease was touched recently."""
+    try:
+        age = time.time() - (index_dir / _LEASE_FILE).stat().st_mtime
+    except OSError:
+        return False
+    return age < _LEASE_FRESH_S
 
 
 def _staging_owner_alive(name: str) -> bool:
@@ -361,39 +383,69 @@ class IndexStore:
 
     @contextmanager
     def lock(
-        self, adapter: str, key: str, *, timeout_s: float = _DEFAULT_LOCK_TIMEOUT_S
+        self,
+        adapter: str,
+        key: str,
+        *,
+        timeout_s: float | None = None,
     ) -> Iterator[None]:
-        """Acquire an exclusive cross-process lock for one index key."""
+        """Acquire an exclusive cross-process lock for one index key.
+
+        The default timeout comes from ``GSEEK_INDEX_LOCK_TIMEOUT`` (seconds)
+        or 300s: large references can legitimately index for longer, and the
+        waiter should keep waiting rather than fail.
+        """
         self._require_enabled()
         self._ensure_root()
         if not _valid_key(key):
             raise CacheError(f"invalid index key: {key!r}")
+        if timeout_s is None:
+            timeout_s = _lock_timeout_from_env()
         root = self.adapter_root(adapter)
         root.mkdir(parents=True, exist_ok=True)
         lock_path = root / f"{key}.lock"
         if fcntl is None:  # pragma: no cover - Windows fallback
             yield
             return
-        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
         deadline = time.monotonic() + timeout_s
-        try:
-            while True:
+        while True:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+            try:
+                while True:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            os.close(descriptor)
+                            raise IndexLockError(
+                                f"timed out waiting for index lock: {lock_path}",
+                                context={"adapter": adapter, "key": key},
+                            ) from None
+                        time.sleep(_LOCK_POLL_S)
+                # A GC between open and flock may have unlinked this lock file:
+                # our fd would then guard an orphan inode while a new locker
+                # opens a fresh one and both "hold" the lock. Re-validate.
                 try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    same_inode = os.fstat(descriptor).st_ino == os.stat(lock_path).st_ino
+                except OSError:
+                    same_inode = False
+                if same_inode:
                     break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise IndexLockError(
-                            f"timed out waiting for index lock: {lock_path}",
-                            context={"adapter": adapter, "key": key},
-                        ) from None
-                    time.sleep(_LOCK_POLL_S)
+            except BaseException:
+                with suppress(OSError):
+                    os.close(descriptor)
+                raise
+            with suppress(OSError):
+                os.close(descriptor)
+        try:
             yield
         finally:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
             finally:
-                os.close(descriptor)
+                with suppress(OSError):
+                    os.close(descriptor)
 
     def list_indexes(self) -> tuple[IndexGcEntry, ...]:
         if not self.index_root.is_dir():
@@ -455,6 +507,17 @@ class IndexStore:
                 )
         return stale
 
+    def mark_in_use(self, adapter: str, key: str) -> None:
+        """Refresh the in-use lease for one index.
+
+        GC skips leased indexes: an external tool may be reading the index
+        right now, and deleting it mid-run fails the pipeline. The lease is a
+        dotfile inside the index directory whose mtime is the heartbeat.
+        """
+        index_dir = self.path_for(adapter, key)
+        with suppress(OSError):
+            (index_dir / _LEASE_FILE).touch()
+
     def gc(
         self,
         *,
@@ -470,6 +533,8 @@ class IndexStore:
         total = sum(entry.size_bytes for entry in entries)
         selected: list[IndexGcEntry] = []
         for entry in entries:
+            if _lease_is_fresh(entry.path):
+                continue  # a run is using this index right now
             too_old = False
             if max_age_days is not None and entry.created_at:
                 try:

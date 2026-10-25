@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 import pytest
@@ -278,3 +279,57 @@ def test_tags_participate_in_record_equality() -> None:
     # still hash equally, so the eq/hash contract holds).
     assert hash(plain) == hash(same)
     assert len({plain, same, with_nm}) == 2
+
+
+def test_record_rejects_interval_beyond_length() -> None:
+    # Out-of-bounds coordinates would silently derive coverage > 1.0 and
+    # skew best-hit selection.
+    with pytest.raises(InputError, match="query_end"):
+        AlignmentRecord(query_id="q", target_id="t", query_start=0, query_end=600, query_length=480)
+    with pytest.raises(InputError, match="target_end"):
+        AlignmentRecord(query_id="q", target_id="t", target_start=0, target_end=9, target_length=8)
+    # end == length is a legitimate full-length hit.
+    AlignmentRecord(query_id="q", target_id="t", query_start=0, query_end=480, query_length=480)
+
+
+def test_summarize_uses_max_length_on_conflict() -> None:
+    # Same target_id with inconsistent lengths must not silently depend on
+    # sort position; the largest observed length wins deterministically.
+    first_sorted = AlignmentRecord(
+        query_id="q",
+        target_id="t",
+        identity=90.0,
+        query_start=0,
+        query_end=10,
+        query_length=100,
+        target_start=0,
+        target_end=10,
+        target_length=100,
+    )
+    later = AlignmentRecord(
+        query_id="q",
+        target_id="t",
+        identity=99.0,
+        query_start=0,
+        query_end=10,
+        query_length=100,
+        target_start=0,
+        target_end=10,
+        target_length=200,
+    )
+    stats = build_alignment_stats(
+        (first_sorted, later), query_count=1, target_count=1, runtime_s=0.0
+    )
+    result = AlignmentResult(
+        backend="fake", records=(first_sorted, later), inputs=(), targets=(), stats=stats, params={}
+    )
+    summary = result.summarize_by_target()[0]
+    assert summary.target_length == 200, "must not depend on which record sorts first"
+
+
+def test_tags_are_immutable_after_construction() -> None:
+    record = AlignmentRecord(query_id="q", target_id="t", tags={"NM": "1"})
+    original = dict(record.tags)
+    with contextlib.suppress(TypeError):
+        record.tags["NM"] = "999"  # type: ignore[index]
+    assert dict(record.tags) == original

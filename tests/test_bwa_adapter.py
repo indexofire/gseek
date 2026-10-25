@@ -327,3 +327,14 @@ def test_plan_align_rejects_alignment_algorithm_trap(tmp_path: Path) -> None:
         request = AlignRequest(query=(query,), target=(target,), params={"algorithm": bogus})
         with pytest.raises(UnsupportedFeatureError, match="bwa mem"):
             BwaAdapter().plan_align(request, _index(), PlanContext(workspace=tmp_path / "work"))
+
+
+def test_parse_sam_skips_blank_lines(tmp_path: Path) -> None:
+    # Align with iter_data_lines elsewhere: blank lines are not parse errors.
+    lines = [
+        "@SQ\tSN:t1\tLN:600",
+        "   ",
+        _sam(tags=("NM:i:0",)),
+    ]
+    records = _parse(lines, tmp_path=tmp_path)
+    assert len(records) == 1

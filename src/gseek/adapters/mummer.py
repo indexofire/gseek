@@ -13,7 +13,7 @@ from gseek.adapter import (
     ParseContext,
     PlanContext,
 )
-from gseek.adapters.base import iter_data_lines, result_lines
+from gseek.adapters.base import finite_float, iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolchainProbe, ToolRequirement
 from gseek.errors import ParseError, ToolNotFoundError, ToolVersionError, UnsupportedFeatureError
 from gseek.execution import CommandPlan, ToolProbe, ToolResolver
@@ -182,11 +182,11 @@ class MummerAdapter(BaseAdapter):
                 s2 = int(fields[2])
                 e2 = int(fields[3])
                 len1 = int(fields[4])
-                identity = float(fields[6])
+                identity = finite_float(fields[6])
                 lenr = int(fields[7])
                 lenq = int(fields[8])
-                covr = float(fields[9])
-                covq = float(fields[10])
+                covr = finite_float(fields[9])
+                covq = finite_float(fields[10])
             except (TypeError, ValueError) as exc:
                 raise ParseError(
                     f"invalid show-coords numeric field: {exc}",

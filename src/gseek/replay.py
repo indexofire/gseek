@@ -93,6 +93,9 @@ def replay(
     except (TypeError, ValueError):
         threads = 1
     paired = bool(document.extra.get("paired", False))
+    # The index policy changes the planned command sequence (subject vs db);
+    # replaying under the default AUTO would fabricate result mismatches.
+    index_policy = str(document.extra.get("index_policy", "auto"))
     query_kind = document.inputs[0].kind
     external_reference = bool(document.extra.get("external_reference", False)) or any(
         ref.kind is InputKind.SKETCH for ref in document.targets
@@ -109,6 +112,7 @@ def replay(
             paired=paired,
             params=params,
             threads=threads,
+            index=index_policy,
             target_filter=target_filter,
             resolver=resolver,
             executor=executor,
@@ -125,6 +129,7 @@ def replay(
             query_kind=query_kind,
             params=params,
             threads=threads,
+            index=index_policy,
             external_reference=external_reference,
             external_sha256=document.targets[0].sha256 if external_reference else None,
             external_size=document.targets[0].size if external_reference else None,
