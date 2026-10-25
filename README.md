@@ -6,7 +6,7 @@
 
 `gseek` 把 BLAST+、minimap2、MUMmer、KMA、BWA、mash/sourmash 等外部 DNA 比对工具封装成一层稳定 API：统一请求、统一结果模型、内容寻址索引、可复现的 run manifest。它面向 [gside](https://github.com/indexofire/gside)、[gapit](https://github.com/indexofire/gapit)、[gmlst](https://github.com/indexofire/gmlst) 这类“需要反复做 DNA 比对”的基因组工具，避免每个项目重复实现命令拼装、输出解析、缓存和版本记录。
 
-> **状态：M0 基座 + M1–M4 适配器（0.9.1 alpha，已发布 PyPI）。** BLAST+（核酸/蛋白）、minimap2、KMA、MUMmer4、BWA、mash、sourmash、skani 已可用；replay 已落地。真实输出 golden fixtures、8 后端 replay 矩阵与 gside 迁移分支已验证；剩余工作是 gmlst/gapit 迁移。
+> **状态：M0 基座 + M1–M4 适配器（0.9.2 alpha，已发布 PyPI）。** BLAST+（核酸/蛋白）、minimap2、KMA、MUMmer4、BWA、mash、sourmash、skani 已可用；replay 已落地。真实输出 golden fixtures、8 后端 replay 矩阵与 gside 迁移分支已验证；剩余工作是 gmlst/gapit 迁移。
 
 ### 当前进度
 
@@ -46,10 +46,10 @@
 
 ```bash
 # PyPI
-pip install gseek==0.9.1
+pip install gseek==0.9.2
 
 # 本地 wheel（发布物验证）
-uv pip install dist/gseek-0.9.1-py3-none-any.whl
+uv pip install dist/gseek-0.9.2-py3-none-any.whl
 
 # 源码开发模式
 pip install -e ".[dev]"
@@ -58,10 +58,10 @@ pip install -e ".[dev]"
 pixi install
 ```
 
-> **命名说明**：项目原名 `gcore`，因 PyPI 上的 `gcore` 已被 [Gcore Python API](https://pypi.org/project/gcore/) 占用，于 2026-10-22 更名为 **gseek**。PyPI 分发名、导入名和 CLI 均为 `gseek`；0.9.1 已发布。决策记录见 [ADR-0002](dev/decisions/0002-project-rename.md)。
+> **命名说明**：项目原名 `gcore`，因 PyPI 上的 `gcore` 已被 [Gcore Python API](https://pypi.org/project/gcore/) 占用，于 2026-10-22 更名为 **gseek**。PyPI 分发名、导入名和 CLI 均为 `gseek`；0.9.2 已发布。决策记录见 [ADR-0002](dev/decisions/0002-project-rename.md)。
 >
-> **稳定性**：0.9.1 仍是 alpha；1.0 前公共 API 可能调整。生产集成请钉住
-> `gseek==0.9.1`，并通过 `GSIDE_ENGINE`/feature flag 保留旧路径。
+> **稳定性**：0.9.2 仍是 alpha；1.0 前公共 API 可能调整。生产集成请钉住
+> `gseek==0.9.2`，并通过 `GSIDE_ENGINE`/feature flag 保留旧路径。
 
 外部工具不随包安装，按需通过 conda/pixi/系统包管理器安装：
 

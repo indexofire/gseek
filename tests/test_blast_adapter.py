@@ -422,3 +422,29 @@ def test_plan_align_rejects_preset(tmp_path: Path) -> None:
     )
     with pytest.raises(UnsupportedFeatureError):
         adapter.plan_align(request, None, PlanContext(workspace=tmp_path / "work"))
+
+
+def test_parser_preserves_sseq(tmp_path: Path) -> None:
+    line = _row() + "\tACGTACGT"
+    record = _parse([line], tmp_path=tmp_path)[0]
+    assert record.target_aligned == "ACGTACGT"
+
+
+def test_plan_align_requests_sseq_only_when_asked(tmp_path: Path) -> None:
+    query = _query(tmp_path)
+    target = _targets(tmp_path)
+    base = BlastAdapter().plan_align(
+        AlignRequest(query=(query,), target=(target,)),
+        None,
+        PlanContext(workspace=tmp_path / "work"),
+    )
+    outfmt = base.commands[0].argv[base.commands[0].argv.index("-outfmt") + 1]
+    assert not outfmt.endswith(" sseq")
+
+    plan = BlastAdapter().plan_align(
+        AlignRequest(query=(query,), target=(target,), params={"sseq": True}),
+        None,
+        PlanContext(workspace=tmp_path / "work2"),
+    )
+    outfmt = plan.commands[0].argv[plan.commands[0].argv.index("-outfmt") + 1]
+    assert outfmt.endswith(" sseq")

@@ -40,6 +40,12 @@ _OUTFMT_FIELDS = (
     "stitle",
 )
 _OUTFMT = "6 " + " ".join(_OUTFMT_FIELDS)
+
+
+def _outfmt(include_sseq: bool) -> str:
+    return _OUTFMT + (" sseq" if include_sseq else "")
+
+
 _SUPPORTED_TASKS = frozenset(
     {
         "blastn",
@@ -94,6 +100,7 @@ _ALLOWED_PARAMS = frozenset(
         "strand",
         "word_size",
         "threads",
+        "sseq",
     }
 )
 _DEFAULT_EVALUE = 1e-5
@@ -220,7 +227,7 @@ class BlastAdapter(BaseAdapter):
             str(request.query[0].resolve()),
             *subject_args,
             "-outfmt",
-            _OUTFMT,
+            _outfmt(bool(params.get("sseq"))),
             "-evalue",
             str(params.get("evalue", _DEFAULT_EVALUE)),
             "-max_target_seqs",
@@ -296,9 +303,9 @@ class BlastAdapter(BaseAdapter):
         path = str(ctx.plan.result_files[0]) if ctx.plan.result_files else None
         for line_number, line in iter_data_lines(lines, skip_prefixes=("#",)):
             fields = line.split("\t")
-            if len(fields) < len(_OUTFMT_FIELDS):
+            if len(fields) < len(_OUTFMT_FIELDS) - 1:
                 raise ParseError(
-                    f"expected >= {len(_OUTFMT_FIELDS)} BLAST fields, got {len(fields)}",
+                    f"expected >= {len(_OUTFMT_FIELDS) - 1} BLAST fields, got {len(fields)}",
                     path=path,
                     line_number=line_number,
                     raw_line=line,
@@ -319,7 +326,12 @@ class BlastAdapter(BaseAdapter):
                 bitscore = float(fields[12])
                 qlen = int(fields[13])
                 slen = int(fields[14])
-                stitle = "\t".join(fields[15:]).strip() or None
+                if len(fields) > len(_OUTFMT_FIELDS):
+                    stitle = "\t".join(fields[15:-1]).strip() or None
+                    sseq = fields[-1].strip() or None
+                else:  # older 16-column fixtures without sseq
+                    stitle = "\t".join(fields[15:]).strip() or None
+                    sseq = None
             except (TypeError, ValueError) as exc:
                 raise ParseError(
                     f"invalid BLAST numeric field: {exc}",
@@ -351,6 +363,7 @@ class BlastAdapter(BaseAdapter):
                 evalue=evalue,
                 bit_score=bitscore,
                 target_description=stitle,
+                target_aligned=sseq,
                 tags={"identity_method": "blast_pident"},
             )
 

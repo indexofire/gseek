@@ -261,7 +261,7 @@ class KmaAdapter(BaseAdapter):
 
 
 def _validate_index_params(params: Mapping[str, JsonValue]) -> None:
-    unknown = set(params) - set(_INDEX_FLAGS) - {"threads", "timeout_s"}
+    unknown = set(params) - set(_INDEX_FLAGS) - {"threads", "timeout_s", "mem_mode"}
     if unknown:
         raise UnsupportedFeatureError(
             f"unsupported KMA index parameters: {sorted(unknown)}",

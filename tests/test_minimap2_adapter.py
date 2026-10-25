@@ -310,3 +310,16 @@ def test_index_and_semantic_params() -> None:
     assert adapter.semantic_params({"preset": "asm5", "threads": 4, "debug": True}) == {
         "preset": "asm5"
     }
+
+
+def test_plan_align_passes_speed_profile_flags(tmp_path: Path) -> None:
+    request = AlignRequest(
+        query=(_query(tmp_path),),
+        target=(_targets(tmp_path),),
+        params={"preset": "asm5", "secondary": "no", "w": 15, "e": 1000, "U": "50,1000"},
+    )
+    plan = Minimap2Adapter().plan_align(request, None, PlanContext(workspace=tmp_path / "work"))
+    argv = plan.commands[0].argv
+    assert argv[argv.index("-w") + 1] == "15"
+    assert argv[argv.index("-e") + 1] == "1000"
+    assert argv[argv.index("-U") + 1] == "50,1000"
