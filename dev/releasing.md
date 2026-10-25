@@ -14,6 +14,10 @@ commit or paste a token.
 
 ## 1. Version and changelog
 
+> **Do not change the version without explicit maintainer confirmation.**
+> Propose the target version first; only then update the files below. This rule
+> also applies to dependent projects' `gseek` pins.
+
 - [ ] `pyproject.toml` → `[project].version`
 - [ ] `src/gseek/version.py` → `__version__`
 - [ ] `pixi.toml` → `[workspace].version`
