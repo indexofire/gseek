@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-25
+
+### Added
+
+- `gseek.compat`: shared `legacy`/`gseek`/`shadow` switch with shadow
+  comparison, logging, and legacy fallback. Consumers keep their own legacy
+  implementations; the module only removes duplicated selector/shadow code.
+
 ## [0.9.0] - 2026-10-25
 
 ### Changed
