@@ -99,6 +99,7 @@ All notable changes to this project are documented here. The format follows
 - Removed the unused public helpers `gseek.errors.fail` and
   `gseek.adapters.base.reverse_complement` (no callers in gseek or consumers).
 
+## [0.9.2] - 2026-10-25
 
 ### Added
 - BLAST records optionally request `sseq` (`params={"sseq": True}`) and expose
