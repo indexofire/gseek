@@ -1,6 +1,6 @@
 # gseek API 参考
 
-> 版本：0.9.1（alpha）  
+> 版本：0.9.2（alpha）  
 > 适用范围：Python ≥ 3.12  
 > 源码基准：`src/gseek/`  
 > 新用户请先读 [Quickstart](quickstart.md) 与 [CLI](cli.md)。  
@@ -66,7 +66,7 @@ pixi run check
 ```python
 import gseek
 
-print(gseek.__version__)          # "0.9.1"
+print(gseek.__version__)          # "0.9.2"
 print(gseek.ALIGNMENT_SCHEMA)     # "gseek.alignment/1"
 ```
 
@@ -398,7 +398,7 @@ if issues:
 ### 4.6 版本与 schema 常量
 
 ```python
-gseek.__version__        # "0.9.1"
+gseek.__version__        # "0.9.2"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -1155,7 +1155,7 @@ store.gc(max_bytes=None, max_age_days=None, dry_run=True)
 ```python
 key = compute_index_key(
     adapter="minimap2",
-    adapter_version="1+gseek.0.9.1",
+    adapter_version="1+gseek.0.9.2",
     targets=(target_ref,),
     params={"preset": "asm5"},
     tool_versions={"minimap2": "2.30-r1287"},
@@ -1582,7 +1582,7 @@ gseek replay runs/sample.manifest.json --check --json
   "run_id": "8f0c…",
   "recipe_hash": "4a7d…",
   "created_at": "2026-10-22T12:00:00Z",
-  "gseek_version": "0.9.1",
+  "gseek_version": "0.9.2",
   "python_version": "3.12.15",
   "platform": "Linux-6.12-x86_64",
   "hostname": "compute-01",
@@ -1635,7 +1635,7 @@ gseek replay runs/sample.manifest.json --check --json
 
 ### 14.1 版本策略
 
-- 包版本遵循 SemVer（当前 `0.9.1`，alpha）。
+- 包版本遵循 SemVer（当前 `0.9.2`，alpha）。
 - schema 版本独立：`gseek.alignment/1` 等；破坏性字段变更必须升 schema 版本。
 - 1.0 前公共 API 仍可能调整，但适配器协议与结果模型会尽量保持稳定。
 
