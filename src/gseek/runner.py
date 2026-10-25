@@ -355,9 +355,11 @@ def _external_ref(path: Path, sha256: str, size: int) -> InputRef:
     )
 
 
-def _prepare_queries(request: AlignRequest | DistanceRequest) -> tuple[InputRef, ...]:
+def _prepare_queries(
+    request: AlignRequest | DistanceRequest, *, compute_records: bool = True
+) -> tuple[InputRef, ...]:
     kind = request.query_kind
-    return input_refs(request.query, kind=kind, compute_records=True)
+    return input_refs(request.query, kind=kind, compute_records=compute_records)
 
 
 def _prepare_manifest_path(path: Path | None) -> Path | None:
@@ -401,7 +403,7 @@ def run_alignment(
         {tool.name: tool.path for tool in tools if tool.path is not None}
     )
 
-    query_refs = _prepare_queries(request)
+    query_refs = _prepare_queries(request, compute_records=record_manifest)
     target_files, target_refs = _prepare_targets(request)
     # Adapters plan indices from the concrete target files, not the user's
     # original directory arguments.
@@ -554,7 +556,7 @@ def run_distance(
         {tool.name: tool.path for tool in tools if tool.path is not None}
     )
 
-    query_refs = _prepare_queries(request)
+    query_refs = _prepare_queries(request, compute_records=record_manifest)
     target_files, target_refs = _prepare_targets(request)
     effective_request = DistanceRequest(
         query=request.query,

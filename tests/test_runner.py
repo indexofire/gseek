@@ -398,3 +398,14 @@ def test_distance_record_manifest_false_skips_result_hash(
         record_manifest=False,
     )
     assert result.manifest is None
+
+
+def test_record_manifest_false_skips_query_record_counts(fasta_pair, tmp_path: Path) -> None:
+    query, target = fasta_pair
+    result = run_alignment(
+        AlignRequest(query=(query,), target=(target,)),
+        adapter=FakeAdapter(),
+        store=IndexStore(tmp_path / "cache"),
+        record_manifest=False,
+    )
+    assert result.inputs[0].records is None

@@ -14,7 +14,7 @@ gseek --error-format {json,text} <command> ...
 
 | 选项 | 说明 |
 | --- | --- |
-| `--version` | 打印 `gseek 0.8.1` |
+| `--version` | 打印 `gseek 0.9.0` |
 | `--error-format json` | 默认；stderr 一行 `gseek.error/1` JSON |
 | `--error-format text` | 人类可读的 `gseek: message` + `hint:` |
 
