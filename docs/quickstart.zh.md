@@ -1,6 +1,6 @@
 # Quickstart
 
-[English](quickstart.md) | **简体中文**
+[English](https://indexofire.github.io/gseek/) | **简体中文**
 
 目标：5 分钟内完成第一次比对，并得到可 `verify` / `replay` 的 manifest。
 
@@ -156,5 +156,5 @@ gseek --error-format text align --backend blast --query q.fna --target t.fna
 
 - [CLI 约定](cli.zh.md)：JSON、退出码、自动化注意事项
 - [API 参考](api.zh.md)：结果模型、适配器协议、索引与 schema
-- [适配器矩阵](../dev/adapter-matrix.md)：各工具参数与版本
-- [兼容性迁移](../dev/compatibility.md)：gside/gapit/gmlst 的字段差异
+- [适配器矩阵](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)：各工具参数与版本
+- [兼容性迁移](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)：gside/gapit/gmlst 的字段差异

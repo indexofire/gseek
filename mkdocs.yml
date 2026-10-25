@@ -1,0 +1,66 @@
+site_name: gseek
+site_description: Reproducible DNA alignment and distance infrastructure for Python
+site_author: indexofire
+site_url: https://indexofire.github.io/gseek/
+
+repo_name: indexofire/gseek
+repo_url: https://github.com/indexofire/gseek
+
+docs_dir: docs
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          name: 简体中文
+          build: true
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Tutorial: tutorial.md
+  - Quickstart: quickstart.md
+  - CLI: cli.md
+  - Errors: errors.md
+  - API Reference: api.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details

@@ -1,8 +1,8 @@
 # gseek API reference
 
-**English** | [简体中文](api.zh.md)
+**English** | [简体中文](https://indexofire.github.io/gseek/zh/api/)
 
-> Version: 0.9.2 (alpha)  
+> Version: 0.9.2  
 > Python: >=3.12  
 > Source: `src/gseek/`  
 > New users: read [Quickstart](quickstart.md) first.
@@ -528,10 +528,10 @@ Schemas are versioned; breaking changes require a new schema string.
 
 ## 12. Stability and limits
 
-- `0.9.2` is alpha; public API may change before 1.0.
+- `0.9.2` is the current release; pin it in production. Public API may still change before 1.0.
 - Pin `gseek==0.9.2` in production and keep a legacy path via
   `gseek.compat` while migrating.
 - Backend coverage differs by tool; see the matrix at the top.
 - Manifest replay requires the same adapter/tool versions; environment changes
   can legitimately change results and are reported as replay mismatches.
-- Return to the [documentation index](index.md) or [Chinese API reference](api.zh.md).
+- Return to the [documentation index](index.md) or [Chinese API reference](https://indexofire.github.io/gseek/zh/api/).

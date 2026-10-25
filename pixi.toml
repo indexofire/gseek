@@ -8,6 +8,8 @@ version = "0.9.2"
 [tasks]
 # The package uses a src/ layout; the editable dependency below provides the
 # console script, while PYTHONPATH keeps the tasks pointed at the source tree.
+docs = "mkdocs serve"
+docs-build = "mkdocs build --strict"
 test = "PYTHONPATH=src pytest"
 test-cov = "PYTHONPATH=src pytest --cov=gseek --cov-report=term-missing"
 lint = "ruff check . && ruff format --check src tests"
@@ -28,3 +30,6 @@ pre-commit = ">=3.7"
 
 [pypi-dependencies]
 gseek = { path = ".", editable = true }
+mkdocs = ">=1.6"
+mkdocs-material = ">=9.5"
+mkdocs-static-i18n = ">=1.2"

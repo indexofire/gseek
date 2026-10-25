@@ -1,6 +1,6 @@
 # CLI
 
-[English](cli.md) | **简体中文**
+[English](https://indexofire.github.io/gseek/) | **简体中文**
 
 CLI 是公共 API 的薄封装：只做参数解析、调用 API、输出 JSON、映射退出码；没有交互式
 提示，也不会执行 shell 字符串。适合 CI、Snakemake/Nextflow 和人工排障。

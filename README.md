@@ -46,7 +46,7 @@ and lets the consumer apply thresholds and business rules.
 
 ## Status
 
-`0.9.2` alpha; Python `>=3.12`; runtime dependencies: **none**.
+`0.9.2`; Python `>=3.12`; runtime dependencies: **none**.
 
 | Backend | Input | Operations | Index |
 | --- | --- | --- | --- |
@@ -224,7 +224,9 @@ only owns mode parsing, shadow execution, and fallback.
 
 ## Documentation
 
+- [Documentation site](https://indexofire.github.io/gseek/)
 - [Documentation index](docs/index.md)
+- [Tutorial](docs/tutorial.md)
 - [Quickstart](docs/quickstart.md)
 - [CLI reference](docs/cli.md)
 - [Error model](docs/errors.md)
@@ -254,7 +256,7 @@ pixi run check         # lint + typecheck + test
 ```
 
 Integration tests need the external tools and are skipped when a binary is
-absent. The test suite currently passes **348 tests** (36 skipped integration
+absent. The test suite currently passes **350 tests** (36 skipped integration
 cases without optional tools) and covers adapter planning/parsing, execution,
 indexing, manifests, replay, and consumer parity.
 

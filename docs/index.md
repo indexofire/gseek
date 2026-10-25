@@ -1,6 +1,6 @@
 # gseek documentation
 
-**English** | [简体中文](index.zh.md)
+**English** | [简体中文](https://indexofire.github.io/gseek/zh/)
 
 `gseek` is a zero-runtime-dependency Python library for reproducible DNA
 alignment and distance workflows. It wraps BLAST+, minimap2, MUMmer4, KMA, BWA,
@@ -12,12 +12,13 @@ indexes and replayable run manifests.
 | I want to… | Read |
 | --- | --- |
 | Install and run a first alignment | [Quickstart](quickstart.md) |
+| Follow a complete walkthrough | [Tutorial](tutorial.md) |
 | Use the Python API | [API reference](api.md) |
 | Script/automate the CLI | [CLI reference](cli.md) |
 | Handle failures by code | [Error model](errors.md) |
 | Understand reproducibility | [API: manifests and replay](api.md#7-reproducibility-and-manifests) |
 | Add a custom backend | [API: adapter protocol](api.md#4-adapter-api) |
-| Migrate a consumer safely | [Compatibility](../dev/compatibility.md) |
+| Migrate a consumer safely | [Compatibility](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md) |
 
 ## Core idea
 
@@ -100,7 +101,7 @@ gseek align \
 
 Development material lives outside the user docs:
 
-- [Development plan](../dev/development-plan.md)
-- [Adapter matrix](../dev/adapter-matrix.md)
-- [Compatibility and migration](../dev/compatibility.md)
-- [AGENTS.md](../AGENTS.md) — mandatory TDD and architecture rules.
+- [Development plan](https://github.com/indexofire/gseek/blob/main/dev/development-plan.md)
+- [Adapter matrix](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)
+- [Compatibility and migration](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)
+- [AGENTS.md](https://github.com/indexofire/gseek/blob/main/AGENTS.md) — mandatory TDD and architecture rules.
