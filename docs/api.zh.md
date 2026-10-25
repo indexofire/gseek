@@ -1,12 +1,12 @@
 # gseek API 参考
 
-[English](api.md) | **简体中文**
+[English](https://indexofire.github.io/gseek/) | **简体中文**
 
-> 版本：0.9.2（alpha）  
+> 版本：0.9.2  
 > 适用范围：Python ≥ 3.12  
 > 源码基准：`src/gseek/`  
 > 新用户请先读 [Quickstart](quickstart.zh.md) 与 [CLI](cli.zh.md)。  
-> 相关文档：[错误模型](errors.zh.md) · [开发计划](../dev/development-plan.md) · [适配器矩阵](../dev/adapter-matrix.md) · [兼容性迁移](../dev/compatibility.md) · [AGENTS.md](../AGENTS.md)
+> 相关文档：[错误模型](errors.zh.md) · [开发计划](https://github.com/indexofire/gseek/blob/main/dev/development-plan.md) · [适配器矩阵](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md) · [兼容性迁移](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md) · [AGENTS.md](https://github.com/indexofire/gseek/blob/main/AGENTS.md)
 
 ## 0. 当前状态
 
@@ -173,7 +173,7 @@ AlignRequest
 - 核心模型**不 clamp** coverage。KMA 等工具可能报告大于 100% 的模板覆盖，原始值
   会保留；消费者需要知道其语义。
 - `identity` 的来源可能是 `blast_pident`、`paf_nm`、`paf_matches`、`sam_nm`、
-  `kma_template`、`mummer_coords` 等，见 [适配器矩阵](../dev/adapter-matrix.md)。
+  `kma_template`、`mummer_coords` 等，见 [适配器矩阵](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)。
 - `aligned_length`、`gap_count` 缺失时，`ungapped_*` 返回 `None`，不猜测。
 
 ### 3.4 无损与显式归并
@@ -969,7 +969,7 @@ myalign = "mypkg.myalign:ADAPTER"
 
 ### 6.8 适配器测试要求
 
-按 [AGENTS.md](../AGENTS.md) §3.3，至少覆盖：
+按 [AGENTS.md](https://github.com/indexofire/gseek/blob/main/AGENTS.md) §3.3，至少覆盖：
 
 1. `BackendSpec` 能力/工具/版本约束；
 2. 命令规划（argv、cwd、env、输出路径、超时）；
@@ -1637,7 +1637,7 @@ gseek replay runs/sample.manifest.json --check --json
 
 ### 14.1 版本策略
 
-- 包版本遵循 SemVer（当前 `0.9.2`，alpha）。
+- 包版本遵循 SemVer（当前 `0.9.2`）。
 - schema 版本独立：`gseek.alignment/1` 等；破坏性字段变更必须升 schema 版本。
 - 1.0 前公共 API 仍可能调整，但适配器协议与结果模型会尽量保持稳定。
 
@@ -1661,10 +1661,10 @@ gseek replay runs/sample.manifest.json --check --json
 
 ### 14.3 相关文档
 
-- [开发计划](../dev/development-plan.md) — 里程碑、架构、风险、开放决策
-- [适配器矩阵](../dev/adapter-matrix.md) — 每个工具的命令/字段/版本/坑
-- [兼容性迁移](../dev/compatibility.md) — gside/gapit/gmlst 字段映射与 parity
-- [研究文档](../dev/research.md) — 三工具现有实现对比
-- [ADR-0001](../dev/decisions/0001-mummer4.md) — MUMmer4 选型
-- [ADR-0002](../dev/decisions/0002-project-rename.md) — gcore → gseek 更名
-- [AGENTS.md](../AGENTS.md) — TDD 与架构红线
+- [开发计划](https://github.com/indexofire/gseek/blob/main/dev/development-plan.md) — 里程碑、架构、风险、开放决策
+- [适配器矩阵](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md) — 每个工具的命令/字段/版本/坑
+- [兼容性迁移](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md) — gside/gapit/gmlst 字段映射与 parity
+- [研究文档](https://github.com/indexofire/gseek/blob/main/dev/research.md) — 三工具现有实现对比
+- [ADR-0001](https://github.com/indexofire/gseek/blob/main/dev/decisions/0001-mummer4.md) — MUMmer4 选型
+- [ADR-0002](https://github.com/indexofire/gseek/blob/main/dev/decisions/0002-project-rename.md) — gcore → gseek 更名
+- [AGENTS.md](https://github.com/indexofire/gseek/blob/main/AGENTS.md) — TDD 与架构红线

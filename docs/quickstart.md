@@ -1,6 +1,6 @@
 # Quickstart
 
-**English** | [简体中文](quickstart.zh.md)
+**English** | [简体中文](https://indexofire.github.io/gseek/zh/quickstart/)
 
 Goal: run one alignment and produce a manifest that can be verified and replayed.
 

@@ -39,7 +39,7 @@ consumer (gside / gapit / gmlst)
 
 ## 状态
 
-`0.9.2` alpha；Python `>=3.12`；运行时依赖：**无**。
+`0.9.2`；Python `>=3.12`；运行时依赖：**无**。
 
 | 后端 | 输入 | 操作 | 索引 |
 | --- | --- | --- | --- |
@@ -203,7 +203,9 @@ result = switch.run(legacy_call, gseek_call, compare=compare)
 
 ## 文档
 
+- [文档站点](https://indexofire.github.io/gseek/zh/)
 - [文档首页](docs/index.zh.md)
+- [教程](docs/tutorial.zh.md)
 - [快速开始](docs/quickstart.zh.md)
 - [CLI 参考](docs/cli.zh.md)
 - [错误模型](docs/errors.zh.md)
@@ -232,7 +234,7 @@ pixi run typecheck     # pyright
 pixi run check         # lint + typecheck + test
 ```
 
-集成测试需要外部工具；缺少二进制时跳过。当前 **348 个测试通过**（无工具时 36 个集成测试跳过），覆盖适配器规划/解析、执行、索引、manifest、replay 与消费者 parity。
+集成测试需要外部工具；缺少二进制时跳过。当前 **350 个测试通过**（无工具时 36 个集成测试跳过），覆盖适配器规划/解析、执行、索引、manifest、replay 与消费者 parity。
 
 ## 设计原则
 

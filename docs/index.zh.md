@@ -1,11 +1,11 @@
 # gseek 文档
 
-[English](index.md) | **简体中文**
+[English](https://indexofire.github.io/gseek/) | **简体中文**
 
 `gseek` 是一层稳定、可复现的 DNA 比对 API，封装 BLAST+、minimap2、MUMmer4、
 KMA、BWA、mash、sourmash 与 skani。适配器只做无损规范化；业务结论留给调用方。
 
-> 当前版本 **0.9.2（alpha）**，已发布 PyPI：`pip install gseek==0.9.2`。
+> 当前版本 **0.9.2**，已发布 PyPI：`pip install gseek==0.9.2`。
 
 ## 从这里开始
 

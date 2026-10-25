@@ -1,6 +1,6 @@
 # Error model
 
-**English** | [简体中文](errors.zh.md)
+**English** | [简体中文](https://indexofire.github.io/gseek/zh/errors/)
 
 `gseek` exposes typed exceptions plus stable process exit codes. Library callers
 should catch `gseek.GseekError` and read its fields instead of parsing strings.

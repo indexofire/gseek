@@ -48,6 +48,7 @@ dev = [
 docs = [
   "mkdocs>=1.6",
   "mkdocs-material>=9.5",
+  "mkdocs-static-i18n>=1.2",
 ]
 
 [project.scripts]
@@ -58,7 +59,7 @@ gseek = "gseek.cli:main"
 # from gseek.adapters.BUILTIN_MODULES so the core package stays dependency-free.
 
 [project.urls]
-Documentation = "https://github.com/indexofire/gseek/blob/main/docs/api.md"
+Documentation = "https://indexofire.github.io/gseek/"
 Source = "https://github.com/indexofire/gseek"
 Issues = "https://github.com/indexofire/gseek/issues"
 Changelog = "https://github.com/indexofire/gseek/blob/main/CHANGELOG.md"

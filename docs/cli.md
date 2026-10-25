@@ -1,6 +1,6 @@
 # CLI reference
 
-**English** | [简体中文](cli.zh.md)
+**English** | [简体中文](https://indexofire.github.io/gseek/zh/cli/)
 
 The CLI is a thin wrapper over the public API: argument parsing, JSON output,
 and exit-code mapping. It never executes a shell string.

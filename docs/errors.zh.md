@@ -1,6 +1,6 @@
 # 错误模型
 
-[English](errors.md) | **简体中文**
+[English](https://indexofire.github.io/gseek/) | **简体中文**
 
 gseek 的失败分为**类型化异常**和**稳定的进程退出码**。库调用方应捕获
 `gseek.GseekError` 并读取字段，而不是解析错误字符串。
