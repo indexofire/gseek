@@ -271,3 +271,14 @@ def test_index_and_semantic_params() -> None:
     assert adapter.semantic_params({"mem_mode": True, "threads": 4, "debug": True}) == {
         "mem_mode": True
     }
+
+
+def test_index_accepts_align_only_mem_mode(tmp_path: Path) -> None:
+    target = _targets(tmp_path)
+    index_dir = tmp_path / "index"
+    plan = KmaAdapter().plan_index(
+        IndexRequest(target=(target,), params={"mem_mode": True}),
+        PlanContext(workspace=index_dir, index_dir=index_dir),
+    )
+    assert plan is not None
+    assert plan.entry == "kma_db"

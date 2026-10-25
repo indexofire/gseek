@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Added
+- BLAST records optionally request `sseq` (`params={"sseq": True}`) and expose
+  it as `AlignmentRecord.target_aligned`; default output is unchanged.
+- minimap2 accepts `-e` and `-U` alignment flags (needed by gmlst speed profiles).
+
+### Fixed
+- KMA index parameter validation accepts the alignment-only `mem_mode` flag.
+
 ## [0.9.1] - 2026-10-25
 
 ### Added
