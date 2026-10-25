@@ -32,15 +32,21 @@ def test_api_reference_is_linked_and_complete() -> None:
     assert api.is_file()
     text = api.read_text(encoding="utf-8")
     for heading in (
-        "## 4. 公共 API",
-        "## 5. 结果模型",
-        "## 6. 适配器 API",
-        "## 7. 执行层",
-        "## 8. 索引层",
-        "## 11. 错误模型",
-        "## 12. CLI",
+        "## 2. Public API",
+        "## 3. Result models",
+        "## 4. Adapter API",
+        "## 5. Execution layer",
+        "## 6. Index layer",
+        "## 9. Errors",
+        "## 10. CLI",
     ):
         assert heading in text, f"missing API section: {heading}"
+
+    chinese_api = ROOT / "docs" / "api.zh.md"
+    assert chinese_api.is_file()
+    chinese_text = chinese_api.read_text(encoding="utf-8")
+    for heading in ("## 4. 公共 API", "## 5. 结果模型", "## 12. CLI"):
+        assert heading in chinese_text, f"missing Chinese API section: {heading}"
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "docs/api.md" in readme

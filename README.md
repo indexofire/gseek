@@ -1,80 +1,96 @@
 # gseek
 
 [![PyPI](https://img.shields.io/pypi/v/gseek.svg)](https://pypi.org/project/gseek/)
+[![CI](https://github.com/indexofire/gseek/actions/workflows/ci.yml/badge.svg)](https://github.com/indexofire/gseek/actions)
+[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
 
-**Unified, reproducible DNA alignment infrastructure for Python ≥ 3.12.**
+**English** | [简体中文](README.zh.md)
 
-`gseek` 把 BLAST+、minimap2、MUMmer、KMA、BWA、mash/sourmash 等外部 DNA 比对工具封装成一层稳定 API：统一请求、统一结果模型、内容寻址索引、可复现的 run manifest。它面向 [gside](https://github.com/indexofire/gside)、[gapit](https://github.com/indexofire/gapit)、[gmlst](https://github.com/indexofire/gmlst) 这类“需要反复做 DNA 比对”的基因组工具，避免每个项目重复实现命令拼装、输出解析、缓存和版本记录。
+`gseek` is a zero-runtime-dependency Python library that puts a stable,
+reproducible interface around DNA alignment and distance tools. It normalizes
+requests and results for BLAST+, minimap2, MUMmer4, KMA, BWA, mash, sourmash,
+and skani, with content-addressed indexes and replayable run manifests.
 
-> **状态：M0 基座 + M1–M4 适配器（0.9.2 alpha，已发布 PyPI）。** BLAST+（核酸/蛋白）、minimap2、KMA、MUMmer4、BWA、mash、sourmash、skani 已可用；replay 已落地。真实输出 golden fixtures、8 后端 replay 矩阵与 gside 迁移分支已验证；剩余工作是 gmlst/gapit 迁移。
+It is the shared alignment layer for [gside](https://github.com/indexofire/gside),
+[gapit](https://github.com/indexofire/gapit), and
+[gmlst](https://github.com/indexofire/gmlst). Adapters only plan commands and
+normalize output; biological interpretation stays in the consumer.
 
-### 当前进度
+```text
+consumer (gside / gapit / gmlst)
+              │
+              ▼
+      gseek.api: align / distance / backends
+              │
+              ▼
+ runner: probe → index → plan → execute → parse → manifest
+              │
+              ▼
+ adapters: blast · minimap2 · mummer · kma · bwa · mash · sourmash · skani
+```
 
-- [x] 工程骨架：`pyproject.toml`、`src/` 布局、pixi、CI、MIT。
-- [x] `gseek.model`：`AlignmentRecord` / `AlignmentResult` / `DistanceResult` / `RunManifest`。
-- [x] `gseek.execution`：无 shell、绝对路径、超时、流式、stderr 排空、版本探测。
-- [x] `gseek.index`：内容寻址、文件锁、staging + 原子发布、GC。
-- [x] `gseek.provenance`：SHA-256、canonical JSON、recipe hash、manifest verify。
-- [x] `gseek.adapter` + `gseek.registry` + `gseek.runner`：三阶段协议与端到端编排。
-- [x] `gseek.api` 与 `gseek` CLI：align/distance/backends/doctor/index/manifest。
-- [x] 项目更名 **gseek**（原 gcore 名称冲突）；身份契约测试先红后绿。
-- [x] 工程规范：`AGENTS.md`（强制 TDD）、`CONTRIBUTING.md`、`.editorconfig`、pre-commit、ADR。
-- [x] MUMmer 版本确认：**MUMmer 4.x**（测试基线 4.0.1，ADR-0001）。
-- [x] M1：BLAST+（blastn）与 minimap2 适配器；真实工具集成测试通过。
-- [x] M2：KMA（FASTA/FASTQ/paired）与 MUMmer4（nucmer/show-coords、反向 strand）；真实工具集成测试通过。
-- [x] M3：BWA（SAM）、mash（sketch/dist/screen）、sourmash（sketch/search）；真实工具集成测试通过。
-- [x] M4：BLAST 蛋白任务（blastp/blastx/blastx-fast/tblastn/tblastx）、sourmash gather、skani ANI、manifest replay。
-- [x] 真实工具 golden fixtures、gside/gapit/gmlst 字段 parity、8 后端 replay 矩阵。
-- [x] 339 个单元/契约测试 + 36 个集成测试（无工具时 skip）；覆盖率 88%；ruff + pyright 全绿。
+## Why gseek
 
-## 为什么需要 gseek
+Bioinformatics tools solve similar problems with incompatible conventions:
 
-三个现有工具各自维护了一套比对层，且语义并不一致：
+| Concern | Typical consumer code | gseek |
+| --- | --- | --- |
+| BLAST columns | different `outfmt` per project | one `AlignmentRecord` |
+| Coordinates | 1-based inclusive or 0-based half-open | 0-based half-open + strand |
+| Identity / coverage | tool-specific formulas | normalized values + source |
+| Index reuse | mtime / file existence | content-addressed keys + locks |
+| Reproducibility | partial version logging | `gseek.run/1` manifest + replay |
 
-| 问题 | 现状 |
-| --- | --- |
-| BLAST outfmt | gmlst 12 列、gside 14 列、gapit 15 列 |
-| coverage | 三种公式 |
-| minimap2 identity | 三种公式 |
-| 坐标 | 1-based inclusive / 0-based half-open 混用 |
-| 索引 | mtime/文件存在性判断，缺少并发锁 |
-| 可复现 | 只有 gapit 建库时记录版本，没有单次运行 manifest |
+The library does not decide whether a hit is "good"; it preserves the evidence
+and lets the consumer apply thresholds and business rules.
 
-`gseek` 的设计目标是：**适配器只负责“无损规范化”，执行层负责“可复现”，业务结论留在消费者。**
+## Status
 
-## 安装
+`0.9.2` alpha; Python `>=3.12`; runtime dependencies: **none**.
+
+| Backend | Input | Operations | Index |
+| --- | --- | --- | --- |
+| `blast` | FASTA (DNA/protein tasks) | alignment | target |
+| `minimap2` | FASTA / FASTQ / paired | alignment | target |
+| `kma` | FASTA / FASTQ / paired | alignment | target |
+| `mummer` | FASTA | alignment (MUMmer 4) | none |
+| `bwa` | FASTA / FASTQ / paired | alignment | target |
+| `mash` | FASTA / FASTQ | distance / screen | sketch |
+| `sourmash` | FASTA / FASTQ | distance / search / gather | sketch |
+| `skani` | FASTA | ANI distance | sketch |
+
+External tools are installed separately (conda, Bioconda, pixi, or system
+packages); `gseek` discovers them at runtime and reports actionable errors when
+one is missing or too old.
+
+## Installation
 
 ```bash
-# PyPI
 pip install gseek==0.9.2
+```
 
-# 本地 wheel（发布物验证）
-uv pip install dist/gseek-0.9.2-py3-none-any.whl
+From source:
 
-# 源码开发模式
+```bash
 pip install -e ".[dev]"
-
-# 仓库环境
 pixi install
 ```
 
-> **命名说明**：项目原名 `gcore`，因 PyPI 上的 `gcore` 已被 [Gcore Python API](https://pypi.org/project/gcore/) 占用，于 2026-10-22 更名为 **gseek**。PyPI 分发名、导入名和 CLI 均为 `gseek`；0.9.2 已发布。决策记录见 [ADR-0002](dev/decisions/0002-project-rename.md)。
->
-> **稳定性**：0.9.2 仍是 alpha；1.0 前公共 API 可能调整。生产集成请钉住
-> `gseek==0.9.2`，并通过 `GSIDE_ENGINE`/feature flag 保留旧路径。
-
-外部工具不随包安装，按需通过 conda/pixi/系统包管理器安装：
+External tools:
 
 ```bash
 pixi add blast minimap2 mummer4 kma bwa mash sourmash skani
-# 或
+# or
 conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 ```
 
-## 快速预览（M1–M4 可用）
+The package itself has no third-party runtime dependencies.
+
+## Python quickstart
 
 ```python
 from pathlib import Path
+
 import gseek
 
 result = gseek.align(
@@ -87,30 +103,71 @@ result = gseek.align(
     manifest=Path("runs/sample.manifest.json"),
 )
 
+print(result.stats.record_count)
 for hit in result.records:
     print(hit.query_id, hit.target_id, hit.identity, hit.target_coverage)
 
-summary = result.summarize_by_target()
 best = result.best_per_query_target()
 ```
 
-更多 API：
+Inspect capabilities and tools:
 
 ```python
-gseek.backends()                       # 能力矩阵
-gseek.get_backend("blast").probe()     # 工具/版本探测
-gseek.distance(...)                    # mash/sourmash/skani 距离/ANI
+gseek.backends()
+gseek.get_backend("blast").probe()
+gseek.align(...)
+gseek.distance(...)
 gseek.replay(Path("run.manifest.json"), check=True)
 gseek.verify(Path("run.manifest.json"))
 ```
 
-## CLI 快速开始
+### Distance and ANI
+
+```python
+result = gseek.distance(
+    backend="mash",
+    query=Path("assembly.fna"),
+    reference=Path("refs.msh"),
+    external_reference=True,
+    params={"max_distance": 1.0},
+    manifest=Path("runs/mash.manifest.json"),
+)
+```
+
+`distance` supports mash, sourmash, and skani. `external_reference=True` means
+the reference is already a sketch/database rather than FASTA to be indexed.
+
+## Result model
+
+`gseek.align()` returns an `AlignmentResult` containing normalized
+`AlignmentRecord`s, the index/tool references used, and optional manifest data.
+
+Key provenance fields:
+
+- `query_id`, `target_id`
+- `query_start` / `query_end`, `target_start` / `target_end` (0-based half-open)
+- `strand`
+- `identity`, `aligned_length`, `matches`, `gap_count`, `gap_openings`
+- `target_coverage`, `query_coverage`
+- `evalue`, `bit_score`, `mapq`, `depth`
+- `tags` for tool-specific values (`NM`, `cs`, …)
+
+`AlignmentResult` also provides explicit views such as
+`best_per_query_target()`, `summarize_by_target()`, and
+`iter_records()`. Views never discard the original records.
+
+`gseek.distance()` returns a `DistanceResult`; distance records keep the query,
+reference, distance, and p-value/ANI fields appropriate to the backend.
+
+## CLI
+
+The CLI is a thin wrapper over the public API: argv parsing, JSON output, and
+exit-code mapping. It never executes a shell string.
 
 ```bash
-# 先确认工具是否齐全；缺失时返回 1
 gseek doctor
+gseek backends --json
 
-# 比对，并写出可 verify/replay 的 manifest
 gseek align \
   --backend minimap2 \
   --query sample.fna \
@@ -120,99 +177,98 @@ gseek align \
   --manifest runs/sample.manifest.json \
   -o runs/sample.json
 
-# 校验输入/工具/结果哈希
 gseek verify runs/sample.manifest.json
-
-# 重新规划并校验 result_hash；不会执行 manifest 里的旧 argv
 gseek replay runs/sample.manifest.json --check --json
 ```
 
-CLI 约定：结果写 stdout，错误写 stderr，默认错误是 `gseek.error/1` JSON；
-`--error-format text` 可切换人类可读格式。详见 [CLI](docs/cli.md)。
+Results go to stdout (or `-o`), errors to stderr as `gseek.error/1` JSON by
+default. Use `--error-format text` for humans. Exit codes:
 
-## 架构
+| Code | Meaning |
+| --- | --- |
+| `0` | success |
+| `2` | usage/configuration error |
+| `3` | missing or unsupported tool |
+| `4` | execution/index/manifest error |
+| `5` | input/parse error |
+| `6` | replay hash mismatch |
 
-```text
-┌────────────────────────────────────────────────────────────┐
-│ gside / gapit / gmlst / CLI                                │
-└──────────────────────────┬─────────────────────────────────┘
-                           ▼
-┌────────────────────────────────────────────────────────────┐
-│ gseek.api: align / distance / backends                     │
-└──────────────────────────┬─────────────────────────────────┘
-                           ▼
-┌────────────────────────────────────────────────────────────┐
-│ runner: probe → index → plan → execute → parse → manifest  │
-└───────┬──────────────────────┬──────────────────────┬──────┘
-        ▼                      ▼                      ▼
-┌──────────────┐      ┌────────────────┐     ┌────────────────┐
-│  adapters    │      │   execution    │     │   index store  │
-│ blast        │      │ command plan   │     │ content hash   │
-│ minimap2     │      │ subprocess     │     │ lock + atomic  │
-│ mummer4/kma  │      │ timeouts       │     │ GC             │
-│ bwa/minhash  │      │ env/streaming  │     └────────────────┘
-└───────┬──────┘      └───────┬────────┘
-        └─────────────────────┴──────────────┐
-                                             ▼
-                              ┌────────────────────────────┐
-                              │ result model + provenance  │
-                              │ records / manifest / views │
-                              └────────────────────────────┘
+## Reproducibility
+
+- Indexes are content-addressed: adapter version, semantic parameters, target
+  content hash, and tool version all participate in the key.
+- `gseek.run/1` manifests record inputs, tool versions, planned commands, and a
+  canonical recipe/result hash.
+- `gseek verify` checks recorded files and hashes.
+- `gseek replay` re-plans from the manifest and can compare the new
+  `result_hash`; it does **not** re-execute arbitrary argv stored in JSON.
+
+## Consumer compatibility
+
+`gseek.compat` centralizes the `legacy | gseek | shadow` switch used by
+consumers:
+
+```python
+from gseek.compat import Engine
+
+switch = Engine.from_env("GSIDE_ENGINE")
+result = switch.run(legacy_call, gseek_call, compare=compare)
 ```
 
-## 文档
+- `legacy` (default): only the consumer's existing implementation.
+- `gseek`: only the gseek path; failures propagate.
+- `shadow`: run both, compare/log, and return the legacy result.
 
-- [文档首页](docs/index.md)：按角色导航。
-- [Quickstart](docs/quickstart.md)：安装、第一个 CLI/Python 调用、manifest/replay。
-- [CLI](docs/cli.md)：子命令、JSON 输出、退出码、自动化约定。
-- [错误模型](docs/errors.md)：异常层级、`code`/`exit_code`、处理建议。
-- [API 参考](docs/api.md)：公共 API、模型、适配器协议、执行/索引/可复现层、schema。
-- [开发计划](dev/development-plan.md)：目标、架构、接口、里程碑、风险、开放决策。
-- [三工具调研](dev/research.md)：gside/gapit/gmlst 的代码级对比与重复点。
-- [适配器矩阵](dev/adapter-matrix.md)：六类工具的命令、索引、解析、版本和坑。
-- [兼容性迁移](dev/compatibility.md)：字段映射、影子模式、parity 验收。
-- [ADR-0001：MUMmer4](dev/decisions/0001-mummer4.md)：确认目标为 MUMmer 4.x。
-- [ADR-0002：更名 gseek](dev/decisions/0002-project-rename.md)：名称冲突与迁移清单。
-- [AGENTS.md](AGENTS.md)：TDD、架构边界、验证命令（开发者/agent 必读）。
-- [CONTRIBUTING.md](CONTRIBUTING.md)：贡献流程与测试分层。
-- [CHANGELOG.md](CHANGELOG.md)：版本变更记录。
-- [发布清单](dev/releasing.md)：版本、构建、PyPI 上传与验证。
+The consumer keeps its own business rules and legacy code; `gseek.compat`
+only owns mode parsing, shadow execution, and fallback.
 
-## 开发
+## Documentation
 
-**TDD 是强制的**：先写失败测试，确认失败原因，再写最少实现，最后跑全量门禁。详见
-[AGENTS.md](AGENTS.md)。
+- [Documentation index](docs/index.md)
+- [Quickstart](docs/quickstart.md)
+- [CLI reference](docs/cli.md)
+- [Error model](docs/errors.md)
+- [API reference](docs/api.md)
+- [中文 README](README.zh.md)
+- [中文文档](docs/index.zh.md)
+
+Development documents:
+
+- [Development plan](dev/development-plan.md)
+- [Adapter matrix](dev/adapter-matrix.md)
+- [Compatibility and migration](dev/compatibility.md)
+- [Testing and contribution rules](AGENTS.md)
+- [Changelog](CHANGELOG.md)
+
+## Development
+
+The project enforces test-first development.
 
 ```bash
-pixi run test          # 全量单测
-pixi run test-cov      # 覆盖率（fail_under=85）
+pixi install
+pixi run test          # unit and contract tests
+pixi run test-cov      # coverage gate
 pixi run lint          # ruff check + format --check
 pixi run typecheck     # pyright
 pixi run check         # lint + typecheck + test
-pixi run pre-commit    # 全部 pre-commit hook
 ```
 
-或手动：
+Integration tests need the external tools and are skipped when a binary is
+absent. The test suite currently passes **348 tests** (36 skipped integration
+cases without optional tools) and covers adapter planning/parsing, execution,
+indexing, manifests, replay, and consumer parity.
 
-```bash
-PYTHONPATH=src pytest
-ruff check . && ruff format --check src tests
-PYTHONPATH=src pyright
-```
+## Design principles
 
-## 设计原则
+1. Adapters are pure planners/parsers; only `execution.py` starts processes.
+2. No information loss: merging is an explicit view.
+3. Coordinates are 0-based half-open; strand is a separate field.
+4. Identity/coverage carry their source and formula.
+5. Indexes are content-addressed; no mtime decisions.
+6. Deterministic defaults: stable ordering, absolute paths, `LC_ALL=C`, no shell.
+7. Zero runtime dependencies; typed errors with stable codes.
+8. Docs and schemas are contracts and evolve with the code.
 
-1. 适配器是纯规划器/解析器，不直接启动子进程。
-2. 结果无损；归并是显式视图，不是隐式行为。
-3. 坐标统一为 0-based half-open，strand 单独字段。
-4. identity/coverage 带来源和公式，不只是一个数字。
-5. 索引内容寻址；不依赖 mtime。
-6. 默认确定性：稳定排序、`LC_ALL=C`、绝对路径、无 shell。
-7. 核心零运行时依赖；外部工具通过 PATH/显式路径发现。
-8. 类型化错误 + code + context + hint。
-9. 文档即契约：适配器矩阵与 schema 和代码同步。
-10. 先迁移、后删除；影子模式护航。
+## License
 
-## 许可证
-
-MIT。详见 [LICENSE](LICENSE)。
+MIT. See [LICENSE](LICENSE).
