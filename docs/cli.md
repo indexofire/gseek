@@ -1,38 +1,38 @@
-# CLI
+# CLI reference
 
-CLI 是公共 API 的薄封装：只做参数解析、调用 API、输出 JSON、映射退出码；没有交互式
-提示，也不会执行 shell 字符串。适合 CI、Snakemake/Nextflow 和人工排障。
+**English** | [简体中文](cli.zh.md)
 
-完整选项矩阵见 [API 参考 §12](api.md#12-cli)；本页给常用路径与自动化约定。
+The CLI is a thin wrapper over the public API: argument parsing, JSON output,
+and exit-code mapping. It never executes a shell string.
 
-## 全局选项
+## Global options
 
 ```bash
 gseek --version
 gseek --error-format {json,text} <command> ...
 ```
 
-| 选项 | 说明 |
+| Option | Meaning |
 | --- | --- |
-| `--version` | 打印 `gseek 0.9.2` |
-| `--error-format json` | 默认；stderr 一行 `gseek.error/1` JSON |
-| `--error-format text` | 人类可读的 `gseek: message` + `hint:` |
+| `--version` | print `gseek 0.9.2` |
+| `--error-format json` | default; one-line `gseek.error/1` JSON on stderr |
+| `--error-format text` | human-readable `gseek: message` plus `hint:` |
 
-`--error-format` 必须放在子命令之前。
+`--error-format` must appear before the subcommand.
 
-## 命令
+## Commands
 
-| 命令 | 用途 |
+| Command | Purpose |
 | --- | --- |
-| `gseek backends [--json]` | 能力矩阵与适配器元数据 |
-| `gseek doctor [--json]` | 探测外部工具路径/版本；缺失返回 1 |
-| `gseek index list [--json]` | 列出内容寻址索引缓存 |
-| `gseek index gc [--apply] [--json]` | 垃圾回收；默认 dry-run |
-| `gseek manifest verify PATH [--json]` | 检查 manifest 记录的文件哈希 |
-| `gseek verify PATH [--json]` | 同上，便捷别名 |
-| `gseek replay PATH [--check] [--json]` | 重新规划并重放，不执行旧 argv |
-| `gseek align ...` | 比对 FASTA/FASTQ 到 target |
-| `gseek distance ...` | mash/sourmash/skani 距离/ANI |
+| `gseek backends [--json]` | capability matrix and adapter metadata |
+| `gseek doctor [--json]` | probe external tools; exit 1 when something is missing |
+| `gseek index list [--json]` | list content-addressed index entries |
+| `gseek index gc [--apply] [--json]` | garbage-collect indexes; dry-run by default |
+| `gseek manifest verify PATH [--json]` | verify hashes recorded in a manifest |
+| `gseek verify PATH [--json]` | alias for the above |
+| `gseek replay PATH [--check] [--json]` | re-plan and replay; never executes old argv |
+| `gseek align ...` | align FASTA/FASTQ to target(s) |
+| `gseek distance ...` | mash/sourmash/skani distance or ANI |
 
 ## align
 
@@ -48,67 +48,58 @@ gseek align \
   -o runs/sample.json
 ```
 
-关键选项：
+Key options:
 
-- `--query` / `--target` 可重复；`--paired` 时 `--query` 给两个 FASTQ。
-- `--param KEY=VALUE` 传适配器参数；值先按 JSON 解析，失败按字符串。
-- `--index auto|reuse|rebuild|none`。
-- `--manifest` 写 `gseek.run/1`；`-o` 写结果 JSON，缺省 stdout。
+- `--query` / `--target` are repeatable; with `--paired`, pass two FASTQ
+  queries.
+- `--param KEY=VALUE` passes adapter parameters. Values are parsed as JSON
+  first, then fall back to strings.
+- `--index auto|reuse|rebuild|none`.
+- `--manifest` writes `gseek.run/1`; `-o` writes result JSON (stdout by
+  default).
 
 ## distance
 
 ```bash
-# FASTA 参考，走普通索引
-gseek distance --backend sourmash --query genome.fna --reference refs/ -o out.json
-
-# 预构建 mash sketch
 gseek distance \
   --backend mash \
   --query assembly.fna \
   --reference refs.msh \
   --external-reference \
-  --param max_distance=1.0
+  --param max_distance=1.0 \
+  --manifest runs/mash.manifest.json
 ```
 
-`--external-reference` 表示 `--reference` 是预构建产物：单个 `.msh` / `.sig` /
-`.zip`，或 sourmash rocksdb / skani database 目录。不建索引、不重新 sketch
-reference；目录按确定性 tree hash 记录。
+`--external-reference` means the reference is already a sketch/database (for
+example a `.msh` file or a sourmash rocksdb directory) rather than FASTA to be
+indexed. Omit it when gseek should build the reference itself.
 
-## 机器可读输出
+## Machine-readable output
 
-- `backends --json`、`doctor --json`、`index list/gc --json`、`verify --json`、
-  `replay --json` 输出单个 JSON 文档。
-- `align` / `distance` 默认输出一个 JSON 文档；`-o` 原子写入文件。
-- 正常结果写 **stdout**；错误与诊断写 **stderr**。
-- 命令不读取 stdin，不弹交互提示。
+- Results: stdout, one JSON document; `-o` writes a file instead.
+- Errors: stderr, `gseek.error/1` JSON by default.
+- `--json` on informational commands (`backends`, `doctor`, `index list`,
+  `index gc`, `verify`, `replay`) emits a JSON document instead of text.
+- Progress and notices never contaminate stdout.
 
-示例：
+## Exit codes
 
-```bash
-gseek backends --json | jq '.[].name'
-gseek doctor --json | jq '.[] | select(.ok == false)'
-```
-
-## 退出码
-
-| 退出码 | 含义 |
+| Code | Meaning |
 | --- | --- |
-| `0` | 成功 |
-| `1` | 未预期错误，或 `doctor` 发现缺失工具 |
-| `2` | 用法/配置/不支持 |
-| `3` | 工具缺失或版本错误 |
-| `4` | 执行、索引、缓存或 manifest 错误 |
-| `5` | 输入或解析错误 |
-| `6` | replay `result_hash` 不一致 |
-| `130` | 用户中断 |
+| `0` | success |
+| `1` | generic/unclassified `GseekError` (for example `doctor` with a missing tool) |
+| `2` | usage or configuration error |
+| `3` | missing tool or unsupported tool version |
+| `4` | execution, index, cache, or manifest error |
+| `5` | input or parse error |
+| `6` | replay `result_hash` mismatch |
 
-具体异常类与 `code` 见 [错误模型](errors.md)。
+## Automation notes
 
-## 自动化注意事项
-
-1. 不要解析人类输出；用 `--json` 或 `align`/`distance` 的 JSON 文档。
-2. 失败时先看进程退出码，再解析 stderr 的 `gseek.error/1`。
-3. `replay` 不会执行 manifest 中记录的任意命令；只按 adapter 重新规划。
-4. 并发调用同一索引时，`IndexStore` 使用文件锁；`index gc --apply` 建议避开运行中的任务。
-5. 外部工具必须能被 `GSEEK_<BINARY>`、`GSEEK_PATH_PREPEND` 或 `PATH` 找到；
-   先用 `gseek doctor` 检查。
+- Prefer explicit `--manifest` paths in pipelines; they are the reproducibility
+  boundary.
+- `gseek replay --check` is safe for untrusted manifests: it re-plans through
+  adapters instead of executing recorded argv.
+- `gseek index gc` is a dry run unless `--apply` is passed.
+- `--error-format json` is stable for machine parsing; do not parse
+  human-readable text.

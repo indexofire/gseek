@@ -1,44 +1,45 @@
 # Quickstart
 
-目标：5 分钟内完成第一次比对，并得到可 `verify` / `replay` 的 manifest。
+**English** | [简体中文](quickstart.zh.md)
 
-## 1. 环境
+Goal: run one alignment and produce a manifest that can be verified and replayed.
 
-- Python **≥ 3.12**
-- 外部工具按需安装，不随 Python 包分发：
+## 1. Requirements
+
+- Python **>=3.12**
+- External tools installed separately:
 
 ```bash
 pixi add blast minimap2 mummer4 kma bwa mash sourmash skani
-# 或
+# or
 conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 ```
 
-`gseek` 自身零运行时依赖。
+`gseek` itself has no third-party runtime dependencies.
 
-## 2. 安装
-
-PyPI 已发布 0.9.2。也可以使用本地 wheel 或源码：
+## 2. Install
 
 ```bash
-# 本地 wheel（推荐验证发布物）
-uv pip install dist/gseek-0.9.2-py3-none-any.whl
+pip install gseek==0.9.2
+```
 
-# 或源码开发模式
+From source:
+
+```bash
 pip install -e ".[dev]"
-
-# 或临时注入源码
+# or inject the source tree
 export PYTHONPATH=/path/to/gseek/src
 ```
 
-确认：
+Verify:
 
 ```bash
 gseek --version          # gseek 0.9.2
-gseek backends           # 8 个后端
-gseek doctor             # 检查外部工具；缺失时返回 1
+gseek backends           # capability matrix
+gseek doctor             # external tool probe; exits 1 if a tool is missing
 ```
 
-## 3. 第一个 CLI 比对
+## 3. First CLI alignment
 
 ```bash
 gseek align \
@@ -52,18 +53,23 @@ gseek align \
   -o runs/sample.json
 ```
 
-- `--index auto`：命中内容寻址缓存则复用，否则构建。
-- `--manifest`：记录输入哈希、工具版本、命令、结果哈希。
-- `-o`：结果 JSON；不写则输出到 stdout。
-- 退出码：`0` 成功；`2` 用法错误；`3` 工具缺失；`4` 执行/索引；`5` 输入/解析；`6` replay 不一致。
+What the flags mean:
 
-查看结果：
+- `--index auto`: reuse a matching content-addressed index, or build one.
+- `--manifest`: write `gseek.run/1` with input hashes, tool versions, planned
+  commands, and result hashes.
+- `-o`: write result JSON; without it, JSON goes to stdout.
+
+Exit codes: `0` success, `2` usage, `3` missing tool, `4` execution/index, `5`
+input/parse, `6` replay mismatch.
+
+Inspect the result:
 
 ```bash
 python -m json.tool runs/sample.json | head -40
 ```
 
-## 4. 第一个 Python 调用
+## 4. First Python alignment
 
 ```python
 from pathlib import Path
@@ -83,22 +89,22 @@ result = gseek.align(
 print(result.stats.record_count)
 for hit in result.records:
     print(hit.query_id, hit.target_id, hit.identity, hit.target_coverage)
+
+best = result.best_per_query_target()
 ```
 
-`gseek.distance(...)` 用于 mash/sourmash/skani：
+## 5. Distance and ANI
 
 ```python
 result = gseek.distance(
     backend="mash",
     query=Path("assembly.fna"),
     reference=Path("refs.msh"),
-    external_reference=True,   # reference 是预构建 .msh，不是 FASTA
+    external_reference=True,
     params={"max_distance": 1.0},
     manifest=Path("runs/mash.manifest.json"),
 )
 ```
-
-CLI 等价：
 
 ```bash
 gseek distance \
@@ -110,49 +116,23 @@ gseek distance \
   --manifest runs/mash.manifest.json
 ```
 
-sourmash 也可以把 **rocksdb 目录**作为 external reference：
+`sourmash` and `skani` follow the same pattern; see the
+[API reference](api.md#22-gseekdistance) and [CLI reference](cli.md#distance).
 
-```bash
-gseek distance \
-  --backend sourmash \
-  --query genome.fna \
-  --reference refs.rocksdb \
-  --external-reference \
-  --param k=31 \
-  --param scaled=1000
-```
-
-## 5. 校验与重放
+## 6. Verify and replay
 
 ```bash
 gseek verify runs/sample.manifest.json
 gseek replay runs/sample.manifest.json --check --json
 ```
 
-- `verify` 校验 manifest 中记录的文件哈希；不一致返回 `4`。
-- `replay` 按 adapter 重新规划，**不会执行 manifest 里的 argv**；`--check` 比较
-  canonical `result_hash`，不一致返回 `6`。
+- `verify` checks the files and hashes recorded in the manifest.
+- `replay` re-plans from the manifest and can compare the new `result_hash`.
+- Replay never executes arbitrary argv strings stored in JSON; it asks the
+  adapter to plan again.
 
-## 6. 出错时
+## Next
 
-默认错误是 stderr 上的一行 `gseek.error/1` JSON：
-
-```json
-{"schema":"gseek.error/1","code":"TOOL_NOT_FOUND","message":"...","context":{},"hint":"..."}
-```
-
-需要人类可读输出时：
-
-```bash
-gseek --error-format text align --backend blast --query q.fna --target t.fna
-```
-
-库调用方捕获 `gseek.GseekError`，读取 `code`、`context`、`hint`、`exit_code`。
-详见 [错误模型](errors.md)。
-
-## 7. 下一步
-
-- [CLI 约定](cli.md)：JSON、退出码、自动化注意事项
-- [API 参考](api.md)：结果模型、适配器协议、索引与 schema
-- [适配器矩阵](../dev/adapter-matrix.md)：各工具参数与版本
-- [兼容性迁移](../dev/compatibility.md)：gside/gapit/gmlst 的字段差异
+- [API reference](api.md) — complete signatures and result models.
+- [CLI reference](cli.md) — all commands and automation conventions.
+- [Error model](errors.md) — typed errors and exit codes.

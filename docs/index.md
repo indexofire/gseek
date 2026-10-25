@@ -1,23 +1,106 @@
-# gseek 文档
+# gseek documentation
 
-`gseek` 是一层稳定、可复现的 DNA 比对 API，封装 BLAST+、minimap2、MUMmer4、
-KMA、BWA、mash、sourmash 与 skani。适配器只做无损规范化；业务结论留给调用方。
+**English** | [简体中文](index.zh.md)
 
-> 当前版本 **0.9.2（alpha）**，已发布 PyPI：`pip install gseek==0.9.2`。
+`gseek` is a zero-runtime-dependency Python library for reproducible DNA
+alignment and distance workflows. It wraps BLAST+, minimap2, MUMmer4, KMA, BWA,
+mash, sourmash, and skani behind one request/result model, with content-addressed
+indexes and replayable run manifests.
 
-## 从这里开始
+## Start here
 
-| 文档 | 适合谁 | 内容 |
-| --- | --- | --- |
-| [Quickstart](quickstart.md) | 第一次使用 | 安装、第一个 CLI/Python 调用、manifest/replay |
-| [CLI](cli.md) | 运维与流水线 | 子命令、JSON 输出、退出码、自动化约定 |
-| [错误模型](errors.md) | 库调用方 | `GseekError` 层级、`code`/`exit_code`、错误处理 |
-| [API 参考](api.md) | 适配器作者/集成方 | 完整签名、结果模型、索引、manifest、schema |
+| I want to… | Read |
+| --- | --- |
+| Install and run a first alignment | [Quickstart](quickstart.md) |
+| Use the Python API | [API reference](api.md) |
+| Script/automate the CLI | [CLI reference](cli.md) |
+| Handle failures by code | [Error model](errors.md) |
+| Understand reproducibility | [API: manifests and replay](api.md#7-reproducibility-and-manifests) |
+| Add a custom backend | [API: adapter protocol](api.md#4-adapter-api) |
+| Migrate a consumer safely | [Compatibility](../dev/compatibility.md) |
 
-## 设计原则
+## Core idea
 
-1. **统一模型**：不同工具的输出规范化为 `AlignmentRecord` / `DistanceRecord`。
-2. **不丢原始信息**：保留 NM、alen、identity/coverage 来源；归并是显式视图。
-3. **可复现**：内容寻址索引、`gseek.run/1` manifest、`verify`、`replay --check`。
-4. **零运行时依赖**：Python ≥ 3.12，stdlib only；外部工具按需安装。
-5. **薄 CLI**：CLI 只调用公共 API，不复制业务逻辑，不提供交互式提示。
+```text
+consumers: gside / gapit / gmlst / your pipeline
+                  │
+                  ▼
+        gseek.align / gseek.distance
+                  │
+                  ▼
+  probe → index → plan → execute → parse → manifest
+                  │
+                  ▼
+      normalized records + provenance
+```
+
+Adapters are pure planners and parsers. Only `gseek.execution` starts
+processes. Business decisions such as allele calling, species thresholds, or
+phenotype rules belong in the consumer.
+
+## Install
+
+```bash
+pip install gseek==0.9.2
+```
+
+External tools are not bundled:
+
+```bash
+pixi add blast minimap2 mummer4 kma bwa mash sourmash skani
+```
+
+Check the environment:
+
+```bash
+gseek doctor
+gseek backends
+```
+
+## First Python call
+
+```python
+from pathlib import Path
+
+import gseek
+
+result = gseek.align(
+    backend="minimap2",
+    query=Path("sample.fna"),
+    target=[Path("scheme/alleles.fna")],
+    preset="asm5",
+    threads=8,
+    index="auto",
+    manifest=Path("runs/sample.manifest.json"),
+)
+
+for hit in result.records:
+    print(hit.query_id, hit.target_id, hit.identity)
+```
+
+## First CLI call
+
+```bash
+gseek align \
+  --backend minimap2 \
+  --query sample.fna \
+  --target scheme/alleles.fna \
+  --preset asm5 \
+  --manifest runs/sample.manifest.json \
+  -o runs/sample.json
+```
+
+## Documentation map
+
+- [Quickstart](quickstart.md) — install, first run, verify/replay.
+- [API reference](api.md) — public functions, result models, adapters,
+  execution, indexing, manifests, schemas.
+- [CLI reference](cli.md) — command matrix, output, exit codes.
+- [Error model](errors.md) — exception hierarchy and JSON envelope.
+
+Development material lives outside the user docs:
+
+- [Development plan](../dev/development-plan.md)
+- [Adapter matrix](../dev/adapter-matrix.md)
+- [Compatibility and migration](../dev/compatibility.md)
+- [AGENTS.md](../AGENTS.md) — mandatory TDD and architecture rules.
