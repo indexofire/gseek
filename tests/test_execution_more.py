@@ -259,7 +259,9 @@ def test_stream_rejects_stdin_without_reading_the_file() -> None:
         pass
 
 
-def test_stream_failure_before_start_still_reaps_child(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_failure_before_start_still_reaps_child(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     # If stderr parent creation fails between Popen and start(), the child
     # must still be killed and reaped (not orphaned with full pipes).
     import subprocess
@@ -273,7 +275,7 @@ def test_stream_failure_before_start_still_reaps_child(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(subprocess, "Popen", RecordingPopen)
 
-    blocker = Path("/tmp/opencode/gseek-exec-blocker")
+    blocker = tmp_path / "blocker.txt"
     blocker.write_text("i am a file", encoding="utf-8")
     bad_stderr = blocker / "sub" / "x.err"
 
