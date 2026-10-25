@@ -2,7 +2,7 @@
 
 **English** | [简体中文](https://indexofire.github.io/gseek/zh/api/)
 
-> Version: 0.9.2  
+> Version: 0.10.0  
 > Python: >=3.12  
 > Source: `src/gseek/`  
 > New users: read [Quickstart](quickstart.md) first.
@@ -27,7 +27,7 @@ All symbols below are importable from the top-level package:
 ```python
 import gseek
 
-gseek.__version__        # "0.9.2"
+gseek.__version__        # "0.10.0"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -528,8 +528,8 @@ Schemas are versioned; breaking changes require a new schema string.
 
 ## 12. Stability and limits
 
-- `0.9.2` is the current release; pin it in production. Public API may still change before 1.0.
-- Pin `gseek==0.9.2` in production and keep a legacy path via
+- `0.10.0` is the current release; pin it in production. Public API may still change before 1.0.
+- Pin `gseek==0.10.0` in production and keep a legacy path via
   `gseek.compat` while migrating.
 - Backend coverage differs by tool; see the matrix at the top.
 - Manifest replay requires the same adapter/tool versions; environment changes

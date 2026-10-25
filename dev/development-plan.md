@@ -39,7 +39,7 @@
 | 测试 | 325 个单元/契约 + 36 个集成；覆盖率 88%；ruff + pyright 全绿 |
 
 当前包可以被 `import gseek`、安装，并已通过 8 个后端跑通真实工具，已实现 `replay`；
-0.9.2 已发布 PyPI（sourmash rocksdb 支持）。下一步是 gmlst/gapit parity。
+0.10.0 已发布 PyPI（质量加固批次：空结果/资源回收/失败审计/任务门禁）。下一步是 gmlst/gapit parity。
 
 ## 2. 背景与问题
 
@@ -963,7 +963,7 @@ tests/
 
 - [x] `BwaAdapter`：index、mem、SAM/CIGAR 解析、paired。
 - [x] `MashAdapter`：sketch/dist/screen。
-- [x] `SourmashAdapter`：sketch/search（gather 在 M4 补齐）。
+- [x] `SourmashAdapter`：sketch/search/gather（M4 已补齐 gather）。
 - [x] `DistanceResult` 模型与 `gseek.distance` 端到端。
 - [x] 真实工具集成：BWA 组装/paired、mash dist/screen、sourmash search/containment。
 - [x] 不引入 samtools 依赖；纯 SAM 解析（设计选择）。

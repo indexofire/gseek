@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from gseek.errors import InputError
+
 # ---------------------------------------------------------------------------
 # Schema identifiers (independent from the package version)
 # ---------------------------------------------------------------------------
@@ -105,9 +107,9 @@ class Interval:
 
     def __post_init__(self) -> None:
         if self.start < 0:
-            raise ValueError(f"interval start must be >= 0, got {self.start}")
+            raise InputError(f"interval start must be >= 0, got {self.start}")
         if self.end < self.start:
-            raise ValueError(f"interval end ({self.end}) precedes start ({self.start})")
+            raise InputError(f"interval end ({self.end}) precedes start ({self.start})")
 
     @property
     def length(self) -> int:
@@ -147,9 +149,9 @@ def union_length(intervals: Iterable[Interval | tuple[int, int]]) -> int:
             start, end = item
             start, end = int(start), int(end)
             if start < 0:
-                raise ValueError(f"interval start must be >= 0, got {start}")
+                raise InputError(f"interval start must be >= 0, got {start}")
             if end < start:
-                raise ValueError(f"interval end ({end}) precedes start ({start})")
+                raise InputError(f"interval end ({end}) precedes start ({start})")
             normalized.append((start, end))
     covered = 0
     reach = -1

@@ -306,8 +306,8 @@ packages:
   - wheel ; extra == 'dev'
 - pypi: ./
   name: gseek
-  version: 0.9.2
-  sha256: 9bbe6e45ad44d63ad65de4630e54c361191df6aefd7aeae1e6a3a515193b5963
+  version: 0.10.0
+  sha256: 4e556d0911f5d9f3276bf9e4a32b04eb902a53aa814f72c1e51d62e5d32f029a
   requires_dist:
   - pytest>=8.0 ; extra == 'dev'
   - pytest-cov>=5.0 ; extra == 'dev'

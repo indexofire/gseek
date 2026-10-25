@@ -34,7 +34,7 @@ your pipeline
 Python **3.12+** is required:
 
 ```bash
-pip install gseek==0.9.2
+pip install gseek==0.10.0
 ```
 
 External tools are not Python dependencies. Install the ones you need:

@@ -19,11 +19,11 @@ conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 
 ## 2. 安装
 
-PyPI 已发布 0.9.2。也可以使用本地 wheel 或源码：
+PyPI 已发布 0.10.0。也可以使用本地 wheel 或源码：
 
 ```bash
 # 本地 wheel（推荐验证发布物）
-uv pip install dist/gseek-0.9.2-py3-none-any.whl
+uv pip install dist/gseek-0.10.0-py3-none-any.whl
 
 # 或源码开发模式
 pip install -e ".[dev]"
@@ -35,7 +35,7 @@ export PYTHONPATH=/path/to/gseek/src
 确认：
 
 ```bash
-gseek --version          # gseek 0.9.2
+gseek --version          # gseek 0.10.0
 gseek backends           # 8 个后端
 gseek doctor             # 检查外部工具；缺失时返回 1
 ```

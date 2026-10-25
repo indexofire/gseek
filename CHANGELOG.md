@@ -4,9 +4,101 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.9.2] - 2026-10-25
-
 ## [Unreleased]
+
+## [0.10.0] - 2026-10-25
+
+### Fixed
+- `skani dist` (no index) with multiple query files silently treated the extra
+  queries as references; it now raises `UnsupportedFeatureError` (indexed
+  `search` mode still accepts multiple queries).
+- BLAST parsing no longer guesses the `sseq` column from the field count: an
+  unescaped tab in `stitle` could leak title text into `target_aligned` when
+  `sseq` was not requested. The layout now follows `params={"sseq": ...}`.
+- `sourmash search`/`gather` with zero matches write a 0-byte CSV (exit 0);
+  this is now parsed as an empty result instead of raising `ParseError`.
+- `run_distance` now raises `ParseError` when a distance adapter yields
+  non-`DistanceRecord` values instead of silently dropping them (matching the
+  alignment branch).
+- A corrupted index-cache manifest (non-iterable or absolute-path artifact
+  patterns) no longer crashes `IndexStore.lookup` with
+  `NotImplementedError`/`TypeError`; it degrades to a cache miss.
+- `Executor.run` now kills and reaps the child when `communicate()` fails for
+  a non-timeout reason (decode errors, interrupts) instead of leaking an
+  orphaned process.
+- Streaming commands whose child closes stdout early but keeps finalizing are
+  no longer SIGKILLed into a bogus exit code -9; `close()` waits a grace
+  period before killing.
+- `AlignmentRecord`/`DistanceRecord` reject NaN/Infinity float fields with
+  `InputError` at construction instead of crashing canonical-JSON hashing
+  later.
+- BWA supplementary records with hard-clipped CIGARs (`5H50M15H`) now report
+  `query_length` and query coordinates in the original read's coordinate
+  system (offset by hard clips, both strands).
+- minimap2 PAF rows carrying an `SA` tag now set `is_supplementary` (mirroring
+  bwa's SAM `0x800` semantics).
+- `merge_fasta` raises typed `InputError` (invalid width / unknown duplicate
+  policy) and `views.to_tsv` raises typed `UsageError` for unknown columns,
+  instead of bare `ValueError`s.
+- `Executor.run`/`stream` decode child output with explicit
+  `encoding="utf-8", errors="replace"`: invalid UTF-8 from a tool no longer
+  crashes the parent (and orphaned the child) under non-coerced locales.
+- `stream()` rejects `stdin` plans before slurping the stdin file, and a
+  failure between `Popen` and `start()` (for example an unwritable stderr
+  parent) now reaps the child instead of orphaning it; the `_kill` fallback
+  no longer leaks `PermissionError` from cleanup paths.
+- Stderr files redirected to disk are read as a bounded tail instead of
+  loading the whole file before truncating.
+- `IndexStore.gc` now also collects stale `.staging-*` directories from
+  crashed builds (dead pid in the name) and removes the `.lock` file of every
+  index it deletes instead of letting them accumulate.
+- `IndexStore.lock` rejects keys that would escape the adapter cache
+  directory, matching `path_for`.
+- `RunWorkspace.path`/`PlanContext.path` reject absolute or `..` parts that
+  would silently escape the workspace.
+- `run_alignment`/`run_distance` validate `manifest_path`/`record_manifest`
+  up front: config errors fail before any probe, index build, or command.
+- Failed runs now leave an audit trail: when a run fails mid-flight the
+  manifest is still written with `status=failed`, a `RUN_FAILED` issue, and
+  the commands that actually executed (including the failing one).
+- The published index manifest now records the exact params/tool versions the
+  cache key was hashed from, instead of raw request params.
+- `verify` reports an unreadable sketch directory as a `*_UNREADABLE` issue
+  instead of crashing.
+- `mash screen` with multiple query files is rejected (rows cannot be
+  attributed); with `external_reference`, `k`/`sketch_size` tags are marked
+  `unknown` instead of recording unverified request values.
+- BLAST task binaries are gated per request via the new
+  `BaseAdapter.validate_tools` hook: a missing or outdated optional binary
+  (e.g. `blastx`, or `blastx-fast` needing BLAST+ >= 2.11) fails fast with an
+  actionable error instead of at subprocess spawn.
+- MUMmer's strict probe classifies missing vs broken `nucmer` structurally
+  (path present) instead of sniffing words like "version" in the error text.
+- `sourmash`/`kma` parsers reject a supplied `stream` explicitly instead of
+  silently ignoring it; BWA rejects `algorithm` values that name alignment
+  algorithms (`aln`/`bwasw`/`mem`) — it selects the index construction method.
+- `Interval`, `FileRef`, `InputRef`, and `Issue` raise typed `InputError`
+  instead of bare `ValueError`; `CommandRecord.from_dict` rejects unknown
+  phases with `ManifestError`.
+- Record `tags` (NM/identity_method provenance) now participate in record
+  equality, consistent with `stable_key`; hashing still excludes them.
+- `to_jsonable` decodes stray `bytes` values instead of crashing canonical
+  JSON.
+
+### Changed
+- Shared adapter helpers `result_lines`/`float_or_none` moved to
+  `gseek.adapters.base`, replacing five and three duplicated private copies
+  across adapters; `float_or_none` also drops non-finite tool values.
+- `gseek.execution` is now a package (`command`/`executor`/`tools`/`workspace`
+  modules) and `gseek.model.alignment` is split into
+  `alignment_record` + `alignment`; all public import paths are unchanged.
+- `ParseContext.request` is typed as `AlignRequest | DistanceRequest`;
+  parsers narrow explicitly instead of `type: ignore`.
+- `gseek.index.directory_size` renamed to `tree_size` to stop shadowing the
+  strict `provenance.directory_size`.
+- Removed the unused public helpers `gseek.errors.fail` and
+  `gseek.adapters.base.reverse_complement` (no callers in gseek or consumers).
+
 
 ### Added
 - BLAST records optionally request `sseq` (`params={"sseq": True}`) and expose
