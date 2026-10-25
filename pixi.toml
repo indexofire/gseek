@@ -6,8 +6,8 @@ platforms = ["linux-64"]
 version = "0.9.2"
 
 [tasks]
-# The package uses a src/ layout; PYTHONPATH keeps the tasks working without
-# requiring an editable install inside the pixi environment.
+# The package uses a src/ layout; the editable dependency below provides the
+# console script, while PYTHONPATH keeps the tasks pointed at the source tree.
 test = "PYTHONPATH=src pytest"
 test-cov = "PYTHONPATH=src pytest --cov=gseek --cov-report=term-missing"
 lint = "ruff check . && ruff format --check src tests"
@@ -25,3 +25,6 @@ hypothesis = ">=6.100"
 pyright = ">=1.1"
 nodejs = ">=20"
 pre-commit = ">=3.7"
+
+[pypi-dependencies]
+gseek = { path = ".", editable = true }
