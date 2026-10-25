@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-25
+
+### Fixed
+
+- minimap2 target materialization now also allows duplicate subject IDs. VFDB
+  reads screening failed before this; the BLAST fix in 0.8.0 covered only the
+  BLAST index path.
+
 ## [0.8.0] - 2026-10-25
 
 ### Fixed

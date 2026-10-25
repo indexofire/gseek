@@ -104,7 +104,7 @@ class Minimap2Adapter(BaseAdapter):
         preset = _require_preset(params)
         index_dir = (ctx.index_dir or ctx.workspace).resolve()
         index_dir.mkdir(parents=True, exist_ok=True)
-        merged = merge_fasta(request.target, index_dir / "targets.fasta")
+        merged = merge_fasta(request.target, index_dir / "targets.fasta", on_duplicate="allow")
         index_path = index_dir / "targets.mmi"
         argv: list[str] = ["minimap2", "-x", preset]
         for key, flag in _INDEX_FLAGS.items():
@@ -142,7 +142,13 @@ class Minimap2Adapter(BaseAdapter):
             index_dir = (ctx.index_dir or ctx.workspace).resolve()
             subject = str(index_dir / index.entry)
         else:
-            subject = str(merge_fasta(request.target, ctx.path("targets.fasta")).resolve())
+            subject = str(
+                merge_fasta(
+                    request.target,
+                    ctx.path("targets.fasta"),
+                    on_duplicate="allow",
+                ).resolve()
+            )
 
         argv: list[str] = [
             "minimap2",
