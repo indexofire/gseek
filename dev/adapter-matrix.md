@@ -53,6 +53,37 @@ KMA 的 `Template_Coverage` 直接填入 `target_coverage`（除以 100），不
 
 这样同一批记录在不同线程数下也能得到稳定的规范输出。
 
+### 0.6 目标重复 ID 政策（有意差异）
+
+`merge_fasta` 的 `on_duplicate` 默认策略按后端选择，反映各工具上游的真实约束：
+
+| 后端 | 默认策略 | 原因 |
+| --- | --- | --- |
+| blast / minimap2 | `allow`（保留全部副本） | 真实数据库（如 VFDB）存在重复 subject ID 且工具本身接受；`error` 会破坏已发布场景 |
+| kma / bwa / mummer | `error`（抛 `DuplicateIdError`） | kma index 对重复 ID 静默覆盖（最后写赢，数据丢失）；SAM/nucmer 记录无法区分同名 |
+
+这是**有意的差异**，不是缺陷：切后端等于切换数据政策。含重复 ID 的多文件 target 在 blast/minimap2 下可运行，在 kma/bwa/mummer 下会显式失败并提示。
+
+### 0.7 `query_id` 派生语义
+
+各后端 `query_id` 的来源不同，跨后端 join 时必须先归一化：
+
+| 后端族 | query_id 来源 | 示例（输入 `reads.fastq`） |
+| --- | --- | --- |
+| blast / minimap2 / bwa / mummer | 工具输出的 query defline（逐序列） | `>contig1` → `contig1` |
+| mash（screen/dist） | `Path(query).stem`（逐文件） | `reads` |
+| kma | `Path(query).stem`（逐文件，配对取 R1） | `reads` |
+| sourmash | sketch CSV 的 `query_name` 列（= sketch 时文件名，逐文件） | `reads.fastq`（**含扩展名**） |
+
+注意逐序列 vs 逐文件的粒度差异，以及 sourmash 的扩展名差异；消费者在 join 前应按需做 `Path(name).stem` 归一化。
+
+### 0.8 reference 标识与 mash 撞名
+
+mash 的输出以 reference 文件 **basename** 为标识。gseek 在规划期检查同一请求内
+reference 文件的 basename 唯一性：撞名（如 `dir1/alleles.fa` 与 `dir2/alleles.fa`）
+会立即抛 `InputError`，而不是 sketch 后产出不可区分的行。预构建的外部 `.msh`
+不经过该检查（gseek 未参与构建）；其内部撞名无法在解析层恢复。
+
 ## 1. 能力矩阵
 
 | 家族 | 实现 | 输入 | 输出 | 索引 | 配对 | 流式 | 线程 | 坐标 | 备注 |

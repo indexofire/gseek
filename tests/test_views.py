@@ -126,3 +126,46 @@ def test_to_jsonl_footer_reflects_errors() -> None:
     )
     footer = json.loads(to_jsonl(result_with_errors).strip().splitlines()[-1])
     assert footer["status"] == "error"
+
+
+def test_placement_counts_single_pass_matches_per_pair_queries() -> None:
+    from gseek.views import count_distinct_occurrences, placement_counts
+
+    records = (
+        AlignmentRecord(
+            query_id="q1",
+            target_id="t1",
+            identity=99.0,
+            query_start=0,
+            query_end=10,
+            query_length=100,
+        ),
+        AlignmentRecord(
+            query_id="q1",
+            target_id="t1",
+            identity=99.0,
+            query_start=0,
+            query_end=10,
+            query_length=100,
+        ),
+        AlignmentRecord(
+            query_id="q1",
+            target_id="t1",
+            identity=99.0,
+            query_start=40,
+            query_end=50,
+            query_length=100,
+        ),
+        AlignmentRecord(
+            query_id="q2",
+            target_id="t1",
+            identity=99.0,
+            query_start=0,
+            query_end=9,
+            query_length=90,
+        ),
+    )
+    counts = placement_counts(records)
+    assert counts[("q1", "t1")] == {(0, 10), (40, 50)}
+    assert counts[("q2", "t1")] == {(0, 9)}
+    assert count_distinct_occurrences(records, query_id="q1", target_id="t1") == 2

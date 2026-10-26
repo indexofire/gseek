@@ -16,7 +16,7 @@ from gseek.adapter import (
 )
 from gseek.adapters.base import finite_float, iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement, supports
-from gseek.errors import ParseError, UnsupportedFeatureError
+from gseek.errors import InputError, ParseError, UnsupportedFeatureError
 from gseek.execution import CommandPlan
 from gseek.io import detect_input_kind
 from gseek.model import DistanceRecord, IndexRef
@@ -90,6 +90,7 @@ class MashAdapter(BaseAdapter):
         ctx: PlanContext,
     ) -> AlignPlan:
         _validate_request(request)
+        _check_unique_reference_names(request)
         params = _validate_params(request.params)
         mode = str(params.get("mode", "dist")).lower()
         if mode not in {"dist", "screen"}:
@@ -316,6 +317,29 @@ def _sketch_argv(
     argv.extend(["-o", str(prefix)])
     argv.extend(str(path.resolve()) for path in inputs)
     return argv
+
+
+def _check_unique_reference_names(request: DistanceRequest) -> None:
+    """Reject same-basename references before they are sketched together.
+
+    mash output identifies references by file basename: once two files share
+    one, their rows are indistinguishable and reference counts are wrong.
+    Failing at plan time turns the silent confusion into an actionable error.
+    External pre-built sketches are exempt (gseek did not build them).
+    """
+    if request.external_reference:
+        return
+    seen: dict[str, str] = {}
+    for path in request.reference:
+        name = path.name
+        if name in seen:
+            raise InputError(
+                f"reference files share the basename {name!r}: "
+                f"{seen[name]} and {path}; mash output cannot distinguish them",
+                context={"basename": name},
+                hint="rename the files or run one reference set per invocation",
+            )
+        seen[name] = str(path)
 
 
 def _validate_request(request: DistanceRequest) -> None:

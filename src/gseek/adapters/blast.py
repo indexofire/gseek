@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
+from pathlib import Path
 
 from gseek.adapter import (
+    _LAZY_ERROR,
     AlignPlan,
     AlignRequest,
     BaseAdapter,
@@ -16,8 +18,14 @@ from gseek.adapter import (
 )
 from gseek.adapters.base import finite_float, iter_data_lines, result_lines
 from gseek.capabilities import BackendSpec, Capabilities, ToolchainProbe, ToolRequirement
-from gseek.errors import ParseError, ToolNotFoundError, ToolVersionError, UnsupportedFeatureError
-from gseek.execution import CommandPlan, version_at_least
+from gseek.errors import (
+    ConfigError,
+    ParseError,
+    ToolNotFoundError,
+    ToolVersionError,
+    UnsupportedFeatureError,
+)
+from gseek.execution import CommandPlan, ToolResolver, version_at_least
 from gseek.io import merge_fasta
 from gseek.model import AlignmentRecord, IndexRef
 from gseek.types import IndexScope, InputKind, JsonValue, Molecule, OutputKind, Strand
@@ -168,12 +176,34 @@ class BlastAdapter(BaseAdapter):
         self,
         request: AlignRequest | DistanceRequest,
         probe: ToolchainProbe,
-    ) -> None:
-        """Gate the task binary: optional spec tools bypass the strict probe."""
+        resolver: ToolResolver | None = None,
+    ) -> Mapping[str, Path] | None:
+        """Gate the task binary: optional spec tools bypass the strict probe.
+
+        Under lazy probing the task binary may be a placeholder entry; it is
+        resolved on demand through *resolver* (one ``--version`` subprocess,
+        only for the binary this request actually runs) and its path is
+        returned as an executor binding.
+        """
         assert isinstance(request, AlignRequest)
         task = _task_from(_validated_params(request.params))
         binary = _TASK_TO_BINARY[task]
         tool = next((entry for entry in probe.tools if entry.name == binary), None)
+        bindings: Mapping[str, Path] | None = None
+        if tool is not None and tool.error == _LAZY_ERROR:
+            if resolver is None:  # pragma: no cover - runner always passes one
+                raise ConfigError(
+                    "lazy tool gating requires a resolver",
+                    context={"backend": "blast", "binary": binary},
+                )
+            requirement = next((item for item in self.spec.tools if item.binary == binary), None)
+            if requirement is None:  # pragma: no cover - spec declares all tasks
+                raise ConfigError(
+                    f"no tool requirement declared for {binary!r}",
+                    context={"backend": "blast", "binary": binary},
+                )
+            tool = resolver.probe(requirement, strict=False)
+            bindings = {binary: tool.path} if tool.path is not None else None
         if tool is None or tool.path is None:
             raise ToolNotFoundError(
                 f"BLAST task {task!r} requires the {binary!r} binary",
@@ -194,6 +224,7 @@ class BlastAdapter(BaseAdapter):
                 hint="upgrade BLAST+ to 2.11+ for -fast tasks",
                 context={"backend": "blast", "task": task, "binary": binary},
             )
+        return bindings
 
     def plan_index(self, request: IndexRequest, ctx: PlanContext) -> IndexPlan:
         params = _validated_params(request.params)

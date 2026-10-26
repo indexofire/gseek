@@ -150,6 +150,11 @@ class RunManifest:
             raise ManifestError(
                 f"recipe_hash must be a 64-char sha256 hex digest, got {self.recipe_hash!r}"
             )
+        # Copy caller-owned mappings: later mutation of the source dict must
+        # not drift the recorded provenance away from recipe_hash.
+        object.__setattr__(self, "params", dict(self.params))
+        object.__setattr__(self, "env", dict(self.env))
+        object.__setattr__(self, "extra", dict(self.extra))
         if self.duration_s < 0:
             raise ManifestError("duration_s must be non-negative")
         if self.result_hash is not None and not is_sha256_hex(self.result_hash):

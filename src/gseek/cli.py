@@ -256,7 +256,9 @@ def _cmd_index(args: argparse.Namespace) -> int:
 
 def _cmd_manifest(args: argparse.Namespace) -> int:
     manifest = read_manifest(args.path)
-    issues = verify(args.path, base_dir=args.base_dir)
+    base_dir = args.base_dir if args.base_dir is not None else args.path.resolve().parent
+    # Pass the parsed document: verify() must not read and parse the file again.
+    issues = verify(manifest, base_dir=base_dir)
     if args.json:
         _print_json({"manifest": manifest.to_dict(), "issues": issues})
     else:

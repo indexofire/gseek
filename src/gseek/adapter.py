@@ -158,7 +158,9 @@ class AlignmentAdapter(Protocol):
 
     spec: BackendSpec
 
-    def probe(self, resolver: ToolResolver, *, strict: bool = False) -> ToolchainProbe: ...
+    def probe(
+        self, resolver: ToolResolver, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe: ...
 
     def semantic_params(self, params: Mapping[str, JsonValue]) -> dict[str, JsonValue]: ...
 
@@ -184,7 +186,9 @@ class DistanceAdapter(Protocol):
 
     spec: BackendSpec
 
-    def probe(self, resolver: ToolResolver, *, strict: bool = False) -> ToolchainProbe: ...
+    def probe(
+        self, resolver: ToolResolver, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe: ...
 
     def semantic_params(self, params: Mapping[str, JsonValue]) -> dict[str, JsonValue]: ...
 
@@ -204,6 +208,9 @@ class DistanceAdapter(Protocol):
     ) -> Iterator[object]: ...
 
 
+_LAZY_ERROR = "lazy: not probed (probed on demand per request)"
+
+
 class BaseAdapter:
     """Shared validation/probing helpers for concrete adapters."""
 
@@ -213,22 +220,52 @@ class BaseAdapter:
         self,
         request: AlignRequest | DistanceRequest,
         probe: ToolchainProbe,
-    ) -> None:
+        resolver: ToolResolver | None = None,
+    ) -> Mapping[str, Path] | None:
         """Raise when *request* needs a tool the *probe* shows unusable.
 
         The strict :meth:`probe` already gates non-optional tools; adapters
         whose requests pick among optional binaries (BLAST task binaries)
         override this to gate the right one with the right minimum version.
         The probe result is passed in so custom probe implementations and
-        test doubles keep working.
+        test doubles keep working. When the runner probes lazily
+        (``include_optional=False``), the override may resolve the task
+        binary on demand through *resolver* and return ``{binary: path}``
+        bindings for the executor.
         """
-        del request, probe
+        del request, probe, resolver
+        return None
 
-    def probe(self, resolver: ToolResolver, *, strict: bool = False) -> ToolchainProbe:
-        """Resolve and version-check every declared tool."""
+    def probe(
+        self,
+        resolver: ToolResolver,
+        *,
+        strict: bool = False,
+        include_optional: bool = True,
+    ) -> ToolchainProbe:
+        """Resolve and version-check declared tools.
+
+        ``include_optional=False`` replaces optional tools with lazy
+        placeholders (no ``--version`` subprocess): the runner uses this so a
+        request pays only for the binaries it can actually use, and
+        ``validate_tools`` probes the task binary on demand. ``doctor`` keeps
+        the default eager mode.
+        """
         probes = []
         failed: list[tuple[ToolRequirement, ToolProbe]] = []
         for requirement in self.spec.tools:
+            if not include_optional and requirement.optional:
+                probes.append(
+                    ToolProbe(
+                        name=requirement.binary,
+                        path=None,
+                        version="",
+                        ok=False,
+                        error=_LAZY_ERROR,
+                        role=requirement.role,
+                    )
+                )
+                continue
             probe = resolver.probe(requirement, strict=False)
             probes.append(probe)
             if not probe.ok and not requirement.optional:

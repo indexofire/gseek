@@ -63,7 +63,10 @@ class MummerAdapter(BaseAdapter):
         aliases=("nucmer", "mummer4"),
     )
 
-    def probe(self, resolver: ToolResolver, *, strict: bool = False) -> ToolchainProbe:
+    def probe(
+        self, resolver: ToolResolver, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe:
+        del include_optional
         """Probe nucmer for version; verify show-coords exists separately."""
         nucmer_requirement = next(tool for tool in self.spec.tools if tool.binary == "nucmer")
         nucmer = resolver.probe(nucmer_requirement, strict=False)

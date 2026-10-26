@@ -28,7 +28,23 @@ def iter_data_lines(
     skip_prefixes: tuple[str, ...] = ("#",),
     start_line: int = 1,
 ) -> Iterator[tuple[int, str]]:
-    """Yield ``(line_number, stripped_line)`` for non-empty data lines."""
+    """Yield ``(line_number, stripped_line)`` for non-empty data lines.
+
+    Line numbers accumulate across every file yielded by *stream*: adapters
+    are single-result-file by contract, so per-file resets are not attempted.
+    """
+    if len(skip_prefixes) == 1:
+        # Fast path: a direct startswith beats the any-generator (~5x) and
+        # this iterator underpins every adapter's parse loop.
+        prefix = skip_prefixes[0]
+        for offset, raw in enumerate(stream):
+            line = raw.rstrip("\r\n")
+            if not line.strip():
+                continue
+            if line.startswith(prefix):
+                continue
+            yield start_line + offset, line
+        return
     for offset, raw in enumerate(stream):
         line = raw.rstrip("\r\n")
         if not line.strip():
@@ -115,6 +131,10 @@ def parse_cigar(cigar: str) -> CigarStats:
 
     ``M``, ``=`` and ``X`` consume both query and reference; ``I``/``S``
     consume query; ``D``/``N`` consume reference; ``H``/``P`` consume neither.
+
+    Single pass: leading/trailing clips are detected with a pending-suffix
+    accumulator (reset by every non-clip operation), so no per-op list is
+    materialized — this runs for every SAM/PAF row.
     """
     if not cigar or cigar == "*":
         return CigarStats(0, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -128,7 +148,11 @@ def parse_cigar(cigar: str) -> CigarStats:
     matches = 0
     mismatches = 0
     gap_runs = 0
-    operations: list[tuple[str, int]] = []
+    leading_soft = 0
+    leading_hard = 0
+    in_leading = True
+    tail_soft = 0
+    tail_hard = 0
     position = 0
     for match in _CIGAR_RE.finditer(cigar):
         if match.start() != position:
@@ -136,53 +160,60 @@ def parse_cigar(cigar: str) -> CigarStats:
         position = match.end()
         length = int(match.group(1))
         operation = match.group(2)
-        operations.append((operation, length))
-        if operation in ("M", "=", "X"):
+        if operation == "M":
             query_consumed += length
             reference_consumed += length
             aligned_columns += length
-            if operation == "=":
-                matches += length
-            elif operation == "X":
-                mismatches += length
-        elif operation in ("I", "S"):
+            in_leading = False
+            tail_soft = tail_hard = 0
+        elif operation == "=":
             query_consumed += length
-            if operation == "I":
-                insertions += length
-                gap_runs += 1
-            else:
-                soft_clips += length
-        elif operation in ("D", "N"):
             reference_consumed += length
-            if operation == "D":
-                deletions += length
-                gap_runs += 1
+            aligned_columns += length
+            matches += length
+            in_leading = False
+            tail_soft = tail_hard = 0
+        elif operation == "X":
+            query_consumed += length
+            reference_consumed += length
+            aligned_columns += length
+            mismatches += length
+            in_leading = False
+            tail_soft = tail_hard = 0
+        elif operation == "I":
+            query_consumed += length
+            insertions += length
+            gap_runs += 1
+            in_leading = False
+            tail_soft = tail_hard = 0
+        elif operation == "D":
+            reference_consumed += length
+            deletions += length
+            gap_runs += 1
+            in_leading = False
+            tail_soft = tail_hard = 0
+        elif operation == "N":
+            reference_consumed += length
+            in_leading = False
+            tail_soft = tail_hard = 0
+        elif operation == "S":
+            query_consumed += length
+            soft_clips += length
+            if in_leading:
+                leading_soft += length
+            tail_soft += length
         elif operation == "H":
             hard_clips += length
+            if in_leading:
+                leading_hard += length
+            tail_hard += length
         elif operation == "P":
-            continue
+            in_leading = False
+            tail_soft = tail_hard = 0
         else:  # pragma: no cover - regex restricts operations
             raise ParseError(f"unknown CIGAR operation {operation!r} in {cigar!r}")
     if position != len(cigar):
         raise ParseError(f"invalid CIGAR string: {cigar!r}")
-    leading_soft = 0
-    leading_hard = 0
-    for operation, length in operations:
-        if operation == "S":
-            leading_soft += length
-        elif operation == "H":
-            leading_hard += length
-        else:
-            break
-    trailing_soft = 0
-    trailing_hard = 0
-    for operation, length in reversed(operations):
-        if operation == "S":
-            trailing_soft += length
-        elif operation == "H":
-            trailing_hard += length
-        else:
-            break
     return CigarStats(
         query_consumed=query_consumed,
         reference_consumed=reference_consumed,
@@ -195,9 +226,9 @@ def parse_cigar(cigar: str) -> CigarStats:
         mismatches=mismatches,
         gap_runs=gap_runs,
         leading_soft_clip=leading_soft,
-        trailing_soft_clip=trailing_soft,
+        trailing_soft_clip=tail_soft,
         leading_hard_clip=leading_hard,
-        trailing_hard_clip=trailing_hard,
+        trailing_hard_clip=tail_hard,
     )
 
 

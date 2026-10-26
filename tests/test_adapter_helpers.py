@@ -94,3 +94,16 @@ def test_float_or_none_parses_and_rejects() -> None:
     assert float_or_none("nan") is None
     assert float_or_none("inf") is None
     assert float_or_none("-inf") is None
+
+
+def test_parse_cigar_edge_semantics() -> None:
+    # 锁定重写需保持的边界语义
+    pure = parse_cigar("5S3H")
+    assert (pure.leading_soft_clip, pure.leading_hard_clip) == (5, 3)
+    assert (pure.trailing_soft_clip, pure.trailing_hard_clip) == (5, 3)
+    with_pad = parse_cigar("2H3S10M2P5M4S1H")
+    assert with_pad.leading_hard_clip == 2 and with_pad.leading_soft_clip == 3
+    assert with_pad.trailing_soft_clip == 4 and with_pad.trailing_hard_clip == 1
+    runs = parse_cigar("10M2I3I4D10M")
+    assert runs.insertions == 5 and runs.deletions == 4
+    assert runs.gap_runs == 3, "one per I/D element, not per run"

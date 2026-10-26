@@ -322,3 +322,13 @@ def test_workspace_path_rejects_escape(tmp_path: Path) -> None:
         assert str(inside).startswith(str(workspace.root))
     finally:
         workspace.cleanup()
+
+
+def test_with_tool_paths_preserves_user_bindings() -> None:
+    # The runner binds probe paths on top of the caller's executor; explicit
+    # user tool_paths are the strongest intent and must not be shadowed.
+    from pathlib import Path as _Path
+
+    executor = Executor(tool_paths={"fake-tool": "/custom/fake-tool"})
+    bound = executor.with_tool_paths({"fake-tool": "/usr/bin/fake-tool"})
+    assert bound.tool_paths["fake-tool"] == _Path("/custom/fake-tool")

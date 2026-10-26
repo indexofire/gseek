@@ -22,7 +22,10 @@ from gseek.runner import run_alignment, run_distance
 class OutOfOrderAdapter(FakeAdapter):
     """Emit records in reverse canonical order to exercise replay hashing."""
 
-    def probe(self, resolver: object, *, strict: bool = False) -> ToolchainProbe:
+    def probe(
+        self, resolver: object, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe:
+        del include_optional
         return ToolchainProbe(
             backend="fake",
             tools=(ToolProbe(name="fake-tool", path=Path(sys.executable), version="1.0"),),
@@ -205,3 +208,35 @@ def test_replay_restores_index_policy(fasta_pair, tmp_path: Path) -> None:
     )
     document = _json.loads(manifest_path.read_text(encoding="utf-8"))
     assert document["extra"]["index_policy"] == "none"
+
+
+def test_replay_hashes_target_file_once(fasta_pair, tmp_path: Path, monkeypatch) -> None:
+    # replay 不得对同一文件做 verify + 重规划两遍全量哈希
+    import gseek.provenance as provenance
+
+    register_adapter(FakeAdapter)
+    query, target = fasta_pair
+    manifest_path = tmp_path / "once.json"
+    run_alignment(
+        AlignRequest(query=(query,), target=(target,), index_policy=IndexPolicy.NONE),
+        adapter=FakeAdapter(),
+        manifest_path=manifest_path,
+    )
+
+    calls: list[str] = []
+    real_hash_count = provenance.hash_and_count
+    real_sha256_file = provenance.sha256_file
+
+    def counting_hash(path, kind, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(f"hc:{path}")
+        return real_hash_count(path, kind, **kwargs)
+
+    def counting_sha(path, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(f"sha:{path}")
+        return real_sha256_file(path, **kwargs)
+
+    monkeypatch.setattr(provenance, "hash_and_count", counting_hash)
+    monkeypatch.setattr(provenance, "sha256_file", counting_sha)
+    replay(manifest_path, check=True)
+    target_reads = [entry for entry in calls if str(target) in entry]
+    assert len(target_reads) == 1, f"target hashed {len(target_reads)} times: {target_reads}"

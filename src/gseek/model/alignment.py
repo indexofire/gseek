@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+import itertools
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any
 
-from gseek.errors import InputError
+from gseek.errors import InputError, ParseError
 from gseek.types import ALIGNMENT_SCHEMA, JsonValue, union_length
 
 from .alignment_record import AlignmentRecord
 from .common import InputRef, Issue
-
-if TYPE_CHECKING:
-    from .run import IndexRef, RunManifest
+from .run import IndexRef, RunManifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +38,25 @@ class AlignmentStats:
             "runtime_s": self.runtime_s,
             "truncated": self.truncated,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AlignmentStats:
+        try:
+            return cls(
+                record_count=int(data["record_count"]),
+                query_count=int(data["query_count"]),
+                target_count=int(data["target_count"]),
+                queries_with_hits=int(data["queries_with_hits"]),
+                targets_with_hits=int(data["targets_with_hits"]),
+                aligned_bases=int(data["aligned_bases"]),
+                runtime_s=float(data["runtime_s"]),
+                truncated=bool(data.get("truncated", False)),
+            )
+        except KeyError as exc:
+            raise ParseError(
+                f"alignment stats missing the {exc.args[0]!r} field",
+                context={"field": str(exc.args[0])},
+            ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,9 +147,16 @@ class AlignmentResult:
     def __post_init__(self) -> None:
         if self.schema != ALIGNMENT_SCHEMA:
             raise InputError(f"unsupported alignment schema: {self.schema!r}")
-        object.__setattr__(
-            self, "records", tuple(sorted(self.records, key=AlignmentRecord.stable_key))
-        )
+        # Compute each key once; skip the O(n log n) sort when the input is
+        # already canonical (replay results, consumer re-wrapping).
+        keys = [record.stable_key() for record in self.records]
+        if any(left > right for left, right in itertools.pairwise(keys)):
+            ordered = sorted(zip(keys, self.records, strict=True), key=lambda pair: pair[0])
+            records = tuple(record for _, record in ordered)
+        else:
+            records = tuple(self.records)
+        object.__setattr__(self, "records", records)
+        object.__setattr__(self, "params", dict(self.params))
 
     def __iter__(self) -> Iterator[AlignmentRecord]:
         return iter(self.records)
@@ -156,13 +181,16 @@ class AlignmentResult:
         target_coverage)``. Full ties keep the first row, matching the
         historical gmlst ``select_best_matches`` behaviour.
         """
-        best: dict[tuple[str, str], AlignmentRecord] = {}
+        # Cache the incumbent's key: recomputing it per challenger was 2k-1
+        # key builds for a group of size k.
+        best: dict[tuple[str, str], tuple[AlignmentRecord, tuple[float, int, float, float]]] = {}
         for record in self.records:
             key = (record.query_id, record.target_id)
             existing = best.get(key)
-            if existing is None or record.quality_key() > existing.quality_key():
-                best[key] = record
-        return tuple(best.values())
+            challenger_key = record.quality_key()
+            if existing is None or challenger_key > existing[1]:
+                best[key] = (record, challenger_key)
+        return tuple(record for record, _ in best.values())
 
     def summarize_by_target(self) -> tuple[TargetSummary, ...]:
         """Aggregate per-target breadth, weighted identity, and depth.
@@ -274,6 +302,42 @@ class AlignmentResult:
         if include_manifest and self.manifest is not None:
             data["manifest"] = self.manifest.to_dict()
         return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AlignmentResult:
+        """Rebuild a result from its ``gseek.alignment/1`` document.
+
+        Complements :meth:`to_dict` so consumers can read back what the CLI
+        and ``to_jsonl`` write, with full record-level validation.
+        """
+        schema = data.get("schema")
+        if schema != ALIGNMENT_SCHEMA:
+            raise ParseError(
+                f"unsupported alignment schema: {schema!r}; expected {ALIGNMENT_SCHEMA!r}",
+                context={"schema": str(schema)},
+            )
+        try:
+            return cls(
+                backend=str(data["backend"]),
+                records=tuple(AlignmentRecord.from_dict(item) for item in data.get("records", ())),
+                inputs=tuple(InputRef.from_dict(item) for item in data.get("inputs", ())),
+                targets=tuple(InputRef.from_dict(item) for item in data.get("targets", ())),
+                params=dict(data.get("params", {})),
+                stats=AlignmentStats.from_dict(data["stats"]),
+                index=IndexRef.from_dict(data["index"]) if data.get("index") is not None else None,
+                manifest=(
+                    RunManifest.from_dict(data["manifest"])
+                    if data.get("manifest") is not None
+                    else None
+                ),
+                warnings=tuple(Issue.from_dict(item) for item in data.get("warnings", ())),
+                errors=tuple(Issue.from_dict(item) for item in data.get("errors", ())),
+            )
+        except KeyError as exc:
+            raise ParseError(
+                f"alignment result missing the {exc.args[0]!r} field",
+                context={"field": str(exc.args[0])},
+            ) from exc
 
 
 __all__ = [

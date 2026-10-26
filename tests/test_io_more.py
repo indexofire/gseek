@@ -159,3 +159,20 @@ def test_atomic_write_permissions_follow_umask(tmp_path: Path) -> None:
     mask = _os.umask(0)
     _os.umask(mask)
     assert mode == 0o666 & ~mask, f"got {oct(mode)}, expected user-umask default"
+
+
+def test_merge_fasta_prefix_survives_same_stem_sources(tmp_path: Path) -> None:
+    # same-stem sources in different dirs must not spuriously collide under prefix mode
+    from gseek.io import iter_fasta
+
+    d1 = tmp_path / "d1"
+    d1.mkdir()
+    d2 = tmp_path / "d2"
+    d2.mkdir()
+    (d1 / "ref.fa").write_text(">x\nACGT\n", encoding="utf-8")
+    (d2 / "ref.fa").write_text(">x\nTTTT\n", encoding="utf-8")
+    merged = merge_fasta(
+        [d1 / "ref.fa", d2 / "ref.fa"], tmp_path / "merged.fa", on_duplicate="prefix"
+    )
+    ids = [record.sequence_id for record in iter_fasta(merged)]
+    assert len(ids) == 2 and len(set(ids)) == 2, ids

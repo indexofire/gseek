@@ -7,7 +7,7 @@ from pathlib import Path
 
 from gseek.adapter import AlignmentAdapter, AlignRequest, DistanceAdapter, DistanceRequest
 from gseek.capabilities import BackendSpec
-from gseek.errors import InputError
+from gseek.errors import ConfigError, InputError
 from gseek.execution import Executor, ToolResolver
 from gseek.index import IndexPolicy, IndexStore
 from gseek.model import AlignmentResult, DistanceResult, Issue, RunManifest
@@ -31,6 +31,19 @@ def _as_paths(value: Path | str | Sequence[Path | str]) -> tuple[Path, ...]:
     if not paths:
         raise InputError("at least one path is required")
     return paths
+
+
+def _coerce_query_kind(query_kind: InputKind | str | None) -> InputKind | None:
+    if not isinstance(query_kind, str):
+        return query_kind
+    try:
+        return InputKind(query_kind)
+    except ValueError as exc:
+        raise ConfigError(
+            f"unknown query kind {query_kind!r}; expected one of "
+            f"{[kind.value for kind in InputKind]}",
+            context={"query_kind": query_kind},
+        ) from exc
 
 
 def align(
@@ -95,16 +108,30 @@ def align(
     """
     merged_params: dict[str, JsonValue] = dict(params or {})
     if preset is not None:
+        existing = merged_params.get("preset")
+        if existing is not None and str(existing) != str(preset):
+            raise ConfigError(
+                f"preset={preset!r} conflicts with params['preset']={existing!r}",
+                context={"preset": str(preset), "params_preset": str(existing)},
+            )
         merged_params["preset"] = preset
+    try:
+        policy = IndexPolicy(index)
+    except ValueError as exc:
+        raise ConfigError(
+            f"unknown index policy {index!r}; expected one of "
+            f"{[policy.value for policy in IndexPolicy]}",
+            context={"index": str(index)},
+        ) from exc
     request = AlignRequest(
         query=_as_paths(query),
         target=_as_paths(target),
-        query_kind=InputKind(query_kind) if isinstance(query_kind, str) else query_kind,
+        query_kind=_coerce_query_kind(query_kind),
         paired=paired,
         params=merged_params,
         threads=threads,
         timeout_s=timeout_s,
-        index_policy=IndexPolicy(index),
+        index_policy=policy,
         target_filter=frozenset(target_filter) if target_filter is not None else None,
         work_dir=Path(work_dir) if work_dir is not None else None,
         keep_work=keep_work,
@@ -178,14 +205,22 @@ def distance(
         GseekError: Base class for typed failures such as missing tools,
             unsupported capabilities, parse errors, or index failures.
     """
+    try:
+        policy = IndexPolicy(index)
+    except ValueError as exc:
+        raise ConfigError(
+            f"unknown index policy {index!r}; expected one of "
+            f"{[policy.value for policy in IndexPolicy]}",
+            context={"index": str(index)},
+        ) from exc
     request = DistanceRequest(
         query=_as_paths(query),
         reference=_as_paths(reference),
-        query_kind=InputKind(query_kind) if isinstance(query_kind, str) else query_kind,
+        query_kind=_coerce_query_kind(query_kind),
         params=dict(params or {}),
         threads=threads,
         timeout_s=timeout_s,
-        index_policy=IndexPolicy(index),
+        index_policy=policy,
         external_reference=external_reference,
         external_sha256=external_sha256,
         external_size=external_size,

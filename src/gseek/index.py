@@ -37,6 +37,7 @@ except ImportError:  # pragma: no cover - Windows
 _DEFAULT_LOCK_TIMEOUT_S = 300.0
 _LOCK_POLL_S = 0.1
 _LEASE_FILE = ".inuse"
+_OWNER_FILE = ".owner.json"
 _LEASE_FRESH_S = 3600.0
 
 
@@ -119,9 +120,58 @@ def _lease_is_fresh(index_dir: Path) -> bool:
     return age < _LEASE_FRESH_S
 
 
-def _staging_owner_alive(name: str) -> bool:
-    """Return True when the pid embedded in a staging dir name still runs."""
-    parts = name.split("-")  # .staging-{key}-{pid}-{uuid}
+def _process_identity() -> dict[str, str]:
+    """Identity of the current process strong enough to survive pid reuse."""
+    identity: dict[str, str] = {"pid": str(os.getpid())}
+    with suppress(OSError):  # pragma: no cover - non-Linux
+        identity["boot_id"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    try:
+        stat = Path(f"/proc/{os.getpid()}/stat").read_text()
+        # comm may contain spaces/parens: fields resume after the last ')'.
+        fields = stat[stat.rfind(")") + 1 :].split()
+        identity["starttime"] = fields[19]  # field 22 overall
+    except (OSError, IndexError):  # pragma: no cover - non-Linux
+        pass
+    return identity
+
+
+def _staging_owner_alive(staging: Path) -> bool:
+    """Return True when the staging directory's creating process still runs.
+
+    Prefers the recorded boot_id/pid/starttime triple (immune to pid reuse);
+    directories from older versions fall back to the pid embedded in the name.
+    """
+    owner_file = staging / _OWNER_FILE
+    if owner_file.is_file():
+        try:
+            owner = json.loads(owner_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False  # unreadable identity: treat as garbage
+        recorded_boot = str(owner.get("boot_id", ""))
+        current_boot = _process_identity().get("boot_id", "")
+        if recorded_boot and current_boot and recorded_boot != current_boot:
+            return False  # different boot: the pid cannot be the same process
+        pid = str(owner.get("pid", ""))
+        recorded_start = str(owner.get("starttime", ""))
+        if not pid.isdigit():
+            return False
+        try:
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            return False
+        except OSError:
+            return True  # exists but is not ours; assume alive
+        if recorded_start:
+            try:
+                stat = Path(f"/proc/{pid}/stat").read_text()
+                fields = stat[stat.rfind(")") + 1 :].split()
+                if fields[19] != recorded_start:
+                    return False  # pid reused by a different process
+            except (OSError, IndexError):  # pragma: no cover - process raced out
+                return False
+        return True
+
+    parts = staging.name.split("-")  # legacy: .staging-{key}-{pid}-{uuid}
     if len(parts) < 4:
         return False
     try:
@@ -278,6 +328,10 @@ class IndexStore:
         root.mkdir(parents=True, exist_ok=True)
         staging = root / f".staging-{key}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         staging.mkdir(parents=True, exist_ok=False)
+        # Owner identity: pid reuse would otherwise keep garbage staging alive
+        # forever (same pid, different process). boot_id+starttime disambiguate.
+        with suppress(OSError):  # pragma: no cover - defensive
+            (staging / _OWNER_FILE).write_text(json.dumps(_process_identity()), encoding="utf-8")
         return staging
 
     def publish(
@@ -494,7 +548,7 @@ class IndexStore:
             for child in sorted(adapter_dir.iterdir()):
                 if not child.is_dir() or not child.name.startswith(".staging-"):
                     continue
-                if _staging_owner_alive(child.name):
+                if _staging_owner_alive(child):
                     continue
                 stale.append(
                     IndexGcEntry(

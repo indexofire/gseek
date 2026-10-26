@@ -43,7 +43,10 @@ class FakeAdapter(BaseAdapter):
     def __init__(self, *, stream: bool = True) -> None:
         self.stream = stream
 
-    def probe(self, resolver: ToolResolver, *, strict: bool = False) -> ToolchainProbe:
+    def probe(
+        self, resolver: ToolResolver, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe:
+        del include_optional
         return ToolchainProbe(
             backend=self.spec.name,
             tools=(
@@ -148,7 +151,10 @@ class FakeDistanceAdapter(BaseAdapter):
         tools=(ToolRequirement("fake-distance-tool", "aligner", ("--version",)),),
     )
 
-    def probe(self, resolver: ToolResolver, *, strict: bool = False) -> ToolchainProbe:
+    def probe(
+        self, resolver: ToolResolver, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe:
+        del include_optional
         return ToolchainProbe(
             backend=self.spec.name,
             tools=(

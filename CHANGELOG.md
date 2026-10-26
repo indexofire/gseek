@@ -6,7 +6,71 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `AlignmentResult.from_dict` / `DistanceResult.from_dict` /
+  `AlignmentStats.from_dict` / `DistanceStats.from_dict`: the
+  `gseek.alignment/1` and `gseek.distance/1` documents written by the CLI can
+  now be read back by the library itself (schema-checked, record-validated),
+  closing the round-trip gap; `hash_and_count` and `placement_counts` are also
+  public now.
+
 ### Fixed
+- `merge_fasta(on_duplicate="prefix")` disambiguates same-stem sources
+  (`dir1/ref.fa` + `dir2/ref.fa`) with deterministic `_2` suffixes instead of
+  a spurious DuplicateIdError.
+- Staging directories record a boot_id/pid/starttime owner identity, so pid
+  reuse can no longer keep crashed-build garbage alive forever.
+- `align(preset=..., params={"preset": ...})` with conflicting values raises
+  `ConfigError` instead of silently overriding; unknown index policies raise
+  `ConfigError` instead of a bare `ValueError`.
+- `Executor.with_tool_paths` no longer shadows tool paths the caller bound
+  explicitly on their own executor.
+- RunManifest params/env/extra and result params are copied on construction:
+  mutating the caller's dicts no longer drifts recorded provenance.
+- `gseek manifest verify` parses the manifest file once instead of twice.
+
+### Changed
+- BLAST probing is lazy in runs: the runner probes only the required
+  tools (blastn/makeblastdb); task binaries are probed on demand by
+  `validate_tools` (which now receives the resolver and may return
+  `{binary: path}` executor bindings). `gseek doctor` keeps probing the
+  full suite. Fresh-process marker calls through gside drop from ~1.7x
+  to ~1.27x of legacy.
+- `BaseAdapter.probe` accepts `include_optional=False`; custom probe
+  overrides should accept the new keyword.
+- mash rejects same-basename reference files at plan time with an
+  actionable `InputError` (their rows would be indistinguishable once
+  sketched; external pre-built sketches are exempt).
+- Documented the intentional cross-backend policies in
+  dev/adapter-matrix.md: duplicate target-ID policy per backend (§0.6,
+  with a hint in `DuplicateIdError`) and `query_id` derivation semantics
+  (§0.7, per-sequence defline vs per-file stem/name).
+- Performance (round 2): minimap2 selects tag fields in one pass (no full
+  tag dict per row); sourmash drops per-row `Path()` construction and hoists
+  the query fallback name; `to_tsv` reads record attributes directly instead
+  of building the 30-key dict per row; `to_jsonl` merges the row type into
+  the fresh `to_dict()` result; `input_refs` hashes multiple files
+  concurrently (GIL-releasing hashlib updates); `best_per_query_target`
+  caches the incumbent quality key; `iter_data_lines` fast-paths a single
+  skip prefix; coverage derivation avoids redundant Interval construction;
+  `AlignmentResult`/`DistanceResult` skip re-sorting already-canonical input
+  (keys computed once). `iter_data_lines` documents the single-result-file
+  line-number contract.
+- Fixed a regression introduced by the single-traversal change:
+  `directory_size` had been reimplemented on top of `_tree_digest_and_size`,
+  so size-only callers (external-reference validation, gside's bridge)
+  silently paid a full tree hash (+40ms per call on a 127MB sketch panel).
+  It is stat-only again; `_tree_digest_and_size` remains the single-pass
+  path for callers that need both digest and size, and a regression test
+  asserts `directory_size` never hashes file contents.
+- Performance: `input_ref` hashes and counts uncompressed FASTA in one pass
+  (`hash_and_count`; ~45% faster on large references, exact same outputs);
+  replay hashes every input exactly once (verify shares the freshly computed
+  refs via `verify_manifest(prefetched=...)` and the runner accepts
+  precomputed `query_refs`/`target_refs`); `parse_cigar` is single-pass with
+  no per-operation list (long-CIGAR records ~27% faster, identical stats);
+  sketch directories are traversed once for both digest and size.
+
 - mash screen no longer truncates reference IDs at `/`: the screen column is
   a sketch defline, not a path (`Path().name` turned
   `"...plasmid/pO157"` into `"pO157"`).

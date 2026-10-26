@@ -45,12 +45,14 @@ class Executor:
 
         Runner binds the paths returned by :class:`ToolResolver` here so that
         ``overrides``/``GSEEK_<BINARY>``/``extra_paths`` affect the actual
-        command, not only version probing.
+        command, not only version probing. Paths already bound on this
+        executor (explicit user configuration) take precedence: they are the
+        strongest intent and must not be shadowed by PATH discoveries.
         """
         clone = copy.copy(self)
         clone.tool_paths = {
-            **self.tool_paths,
             **{str(name): Path(path) for name, path in tool_paths.items()},
+            **self.tool_paths,
         }
         return clone
 
