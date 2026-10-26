@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-26
+
 ### Added
 - `AlignmentResult.from_dict` / `DistanceResult.from_dict` /
   `AlignmentStats.from_dict` / `DistanceStats.from_dict`: the

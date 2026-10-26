@@ -32,7 +32,7 @@ gseek 的 Python 用户。
 需要 Python **3.12+**：
 
 ```bash
-pip install gseek==0.10.0
+pip install gseek==0.10.1
 ```
 
 外部工具不是 Python 依赖，按需安装：

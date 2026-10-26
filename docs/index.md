@@ -42,7 +42,7 @@ phenotype rules belong in the consumer.
 ## Install
 
 ```bash
-pip install gseek==0.10.0
+pip install gseek==0.10.1
 ```
 
 External tools are not bundled:

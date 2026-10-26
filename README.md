@@ -46,7 +46,7 @@ and lets the consumer apply thresholds and business rules.
 
 ## Status
 
-`0.10.0`; Python `>=3.12`; runtime dependencies: **none**.
+`0.10.1`; Python `>=3.12`; runtime dependencies: **none**.
 
 | Backend | Input | Operations | Index |
 | --- | --- | --- | --- |
@@ -66,7 +66,7 @@ one is missing or too old.
 ## Installation
 
 ```bash
-pip install gseek==0.10.0
+pip install gseek==0.10.1
 ```
 
 From source:
