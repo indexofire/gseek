@@ -39,7 +39,7 @@ consumer (gside / gapit / gmlst)
 
 ## 状态
 
-`0.10.1`；Python `>=3.12`；运行时依赖：**无**。
+`0.10.2`；Python `>=3.12`；运行时依赖：**无**。
 
 | 后端 | 输入 | 操作 | 索引 |
 | --- | --- | --- | --- |
@@ -57,7 +57,7 @@ consumer (gside / gapit / gmlst)
 ## 安装
 
 ```bash
-pip install gseek==0.10.1
+pip install gseek==0.10.2
 ```
 
 源码开发：

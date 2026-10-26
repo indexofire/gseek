@@ -20,7 +20,7 @@ conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 ## 2. Install
 
 ```bash
-pip install gseek==0.10.1
+pip install gseek==0.10.2
 ```
 
 From source:
@@ -34,7 +34,7 @@ export PYTHONPATH=/path/to/gseek/src
 Verify:
 
 ```bash
-gseek --version          # gseek 0.10.1
+gseek --version          # gseek 0.10.2
 gseek backends           # capability matrix
 gseek doctor             # external tool probe; exits 1 if a tool is missing
 ```

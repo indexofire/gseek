@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-10-26
+
 ### Added
 - New `sylph` backend (v1.x): `sylph sketch` (reads) + `sylph profile`
   against a pre-built `.syldb`/`.syl2db` reference (external_reference) or a
