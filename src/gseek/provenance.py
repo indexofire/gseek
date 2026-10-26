@@ -164,8 +164,25 @@ def sha256_tree(path: Path) -> str:
 
 
 def directory_size(path: Path) -> int:
-    """Total size of regular files in a directory tree (symlinks rejected)."""
-    return _tree_digest_and_size(path)[1]
+    """Total size of regular files in a directory tree (symlinks rejected).
+
+    Stat-only: callers that only need a size (external-reference validation)
+    must not pay for a full tree hash.
+    """
+    root = path.resolve()
+    if not root.is_dir():
+        raise InputError(f"directory not found: {path}", context={"path": str(path)})
+    total = 0
+    for child, _relative, kind in _tree_entries(root):
+        if kind == "F":
+            try:
+                total += child.stat().st_size
+            except OSError as exc:
+                raise InputError(
+                    f"cannot stat directory entry: {child}: {exc}",
+                    context={"path": str(child)},
+                ) from exc
+    return total
 
 
 def _tree_digest_and_size(path: Path) -> tuple[str, int]:

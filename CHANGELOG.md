@@ -48,6 +48,13 @@ All notable changes to this project are documented here. The format follows
   `AlignmentResult`/`DistanceResult` skip re-sorting already-canonical input
   (keys computed once). `iter_data_lines` documents the single-result-file
   line-number contract.
+- Fixed a regression introduced by the single-traversal change:
+  `directory_size` had been reimplemented on top of `_tree_digest_and_size`,
+  so size-only callers (external-reference validation, gside's bridge)
+  silently paid a full tree hash (+40ms per call on a 127MB sketch panel).
+  It is stat-only again; `_tree_digest_and_size` remains the single-pass
+  path for callers that need both digest and size, and a regression test
+  asserts `directory_size` never hashes file contents.
 - Performance: `input_ref` hashes and counts uncompressed FASTA in one pass
   (`hash_and_count`; ~45% faster on large references, exact same outputs);
   replay hashes every input exactly once (verify shares the freshly computed

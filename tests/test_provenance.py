@@ -350,3 +350,30 @@ def test_input_refs_parallel_matches_serial_and_preserves_order(tmp_path: Path) 
     serial = tuple(input_ref(path) for path in files)
     assert parallel == serial
     assert [ref.path for ref in parallel] == [str(path) for path in files]
+
+
+def test_directory_size_does_not_hash_files(tmp_path: Path) -> None:
+    # directory_size is the stat-only API: external-reference size checks
+    # must not pay a full tree hash (a regression that cost +40ms per call).
+    from gseek import provenance
+
+    target = tmp_path / "refs"
+    target.mkdir()
+    (target / "a.bin").write_bytes(b"x" * 1000)
+    calls: list[str] = []
+    real_hash = provenance.sha256_file
+
+    def counting(path, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(str(path))
+        return real_hash(path, **kwargs)
+
+    monkeypatch_holder = pytest.MonkeyPatch()
+    monkeypatch_holder.setattr(provenance, "sha256_file", counting)
+    try:
+        assert provenance.directory_size(target) == 1000
+    finally:
+        monkeypatch_holder.undo()
+    assert calls == [], f"directory_size must not hash, hashed: {calls}"
+    # digest+size helper DOES hash (single traversal for both).
+    digest, size = provenance._tree_digest_and_size(target)
+    assert size == 1000 and len(digest) == 64
