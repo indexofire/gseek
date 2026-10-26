@@ -57,3 +57,44 @@ def test_run_distance_rejects_non_distance_records(fasta_pair, tmp_path: Path) -
             DistanceRequest(query=(query,), reference=(reference,)),
             adapter=RogueAdapter(),
         )
+
+
+def test_external_reference_with_provided_sha_never_hashes(
+    fasta_pair, tmp_path, monkeypatch
+) -> None:
+    # With caller-provided external_sha256/external_size, gseek only does a
+    # stat-level size check and never re-reads file content.
+    import gseek.provenance as provenance
+
+    query, reference = fasta_pair
+    digest = provenance.sha256_file(reference)  # test fixture; not counted
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        provenance,
+        "sha256_file",
+        lambda path, **kw: (calls.append(str(path)), digest)[1],
+    )
+    real_tree = provenance._tree_digest_and_size
+
+    def counting_tree(path):  # type: ignore[no-untyped-def]
+        calls.append(f"tree:{path}")
+        return real_tree(path)
+
+    monkeypatch.setattr(provenance, "_tree_digest_and_size", counting_tree)
+
+    from conftest import FakeDistanceAdapter
+    from gseek.adapter import DistanceRequest
+    from gseek.runner import run_distance
+
+    run_distance(
+        DistanceRequest(
+            query=(query,),
+            reference=(reference,),
+            external_reference=True,
+            external_sha256=digest,
+            external_size=reference.stat().st_size,
+        ),
+        adapter=FakeDistanceAdapter(),
+    )
+    assert calls == [], f"provided sha must not trigger content hashing: {calls}"

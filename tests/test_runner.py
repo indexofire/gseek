@@ -63,7 +63,10 @@ class BareToolAdapter(FakeAdapter):
     def __init__(self, tool: Path) -> None:
         self.tool = tool
 
-    def probe(self, resolver: object, *, strict: bool = False) -> ToolchainProbe:
+    def probe(
+        self, resolver: object, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe:
+        del strict, include_optional
         return ToolchainProbe(
             backend="fake",
             tools=(ToolProbe(name="fake-tool", path=self.tool, version="1.0"),),
@@ -418,7 +421,8 @@ def test_bad_manifest_path_fails_before_any_command(fasta_pair, tmp_path: Path) 
     calls: list[str] = []
 
     class SpyAdapter(FakeAdapter):
-        def probe(self, resolver, *, strict: bool = False):  # type: ignore[no-untyped-def]
+        def probe(self, resolver, *, strict: bool = False, include_optional=True):  # type: ignore[no-untyped-def]
+            del include_optional
             calls.append("probe")
             return super().probe(resolver, strict=strict)
 
@@ -486,7 +490,7 @@ def test_required_tools_gate_missing_optional_binary(fasta_pair, tmp_path: Path)
     from gseek.errors import ToolNotFoundError
 
     class NeedsMissingTool(FakeAdapter):
-        def validate_tools(self, request, probe):  # type: ignore[no-untyped-def]
+        def validate_tools(self, request, probe, resolver=None):  # type: ignore[no-untyped-def]
             raise ToolNotFoundError(
                 "backend 'fake' requires 'gseek-nonexistent-tool-x'",
                 hint="install gseek-nonexistent-tool-x",

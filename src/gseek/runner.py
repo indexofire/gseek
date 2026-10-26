@@ -76,11 +76,19 @@ def _validate_tools_hook(
     adapter: AlignmentAdapter | DistanceAdapter,
     request: AlignRequest | DistanceRequest,
     probe: ToolchainProbe,
-) -> None:
-    """Call the optional per-request tool gate (see BaseAdapter.validate_tools)."""
+    resolver: ToolResolver,
+) -> Mapping[str, Path] | None:
+    """Call the optional per-request tool gate (see BaseAdapter.validate_tools).
+
+    Adapters running under lazy probing may return ``{binary: path}``
+    bindings for binaries they resolved on demand; the caller merges them
+    into the executor so ``GSEEK_<BINARY>``-style resolution still applies.
+    """
     validate = getattr(adapter, "validate_tools", None)
-    if callable(validate):
-        validate(request, probe)
+    if not callable(validate):
+        return None
+    bindings = validate(request, probe, resolver)
+    return bindings if isinstance(bindings, Mapping) else None
 
 
 def _checked_records[RecordT: (AlignmentRecord, DistanceRecord)](
@@ -515,7 +523,7 @@ def run_alignment(
     resolver = resolver or _default_resolver()
     executor = executor or Executor()
     store = store or IndexStore()
-    probe = align_adapter.probe(resolver, strict=True)
+    probe = align_adapter.probe(resolver, strict=True, include_optional=False)
     tools = probe.tools
     executor = executor.with_tool_paths(
         {tool.name: tool.path for tool in tools if tool.path is not None}
@@ -542,7 +550,9 @@ def run_alignment(
         work_dir=request.work_dir,
         keep_work=request.keep_work,
     )
-    _validate_tools_hook(align_adapter, effective_request, probe)
+    bindings = _validate_tools_hook(align_adapter, effective_request, probe, resolver)
+    if bindings:
+        executor = executor.with_tool_paths(bindings)
     params = _effective_params(align_adapter, effective_request)
 
     index, index_commands = _ensure_index(
@@ -728,7 +738,7 @@ def run_distance(
     resolver = resolver or _default_resolver()
     executor = executor or Executor()
     store = store or IndexStore()
-    probe = distance_adapter.probe(resolver, strict=True)
+    probe = distance_adapter.probe(resolver, strict=True, include_optional=False)
     tools = probe.tools
     executor = executor.with_tool_paths(
         {tool.name: tool.path for tool in tools if tool.path is not None}
@@ -754,7 +764,9 @@ def run_distance(
         work_dir=request.work_dir,
         keep_work=request.keep_work,
     )
-    _validate_tools_hook(distance_adapter, effective_request, probe)
+    bindings = _validate_tools_hook(distance_adapter, effective_request, probe, resolver)
+    if bindings:
+        executor = executor.with_tool_paths(bindings)
     params = _effective_params(distance_adapter, effective_request)
 
     index, index_commands = _ensure_index(

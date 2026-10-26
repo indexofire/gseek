@@ -518,3 +518,54 @@ def test_validate_tools_gates_task_binary_and_fast_task_version(tmp_path: Path) 
         adapter.validate_tools(blastx, probe_for("blastx", "2.2.29"))
     with pytest.raises(ToolVersionError, match=r"2\.11"):
         adapter.validate_tools(blastx_fast, probe_for("blastx", "2.10.0"))
+
+
+def _stub_blast_tools(tmp_path: Path) -> Path:
+    """Hermetic BLAST stubs printing version lines the spec patterns match."""
+    import sys
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name in ("blastn", "makeblastdb", "blastp", "blastx", "tblastn", "tblastx"):
+        stub = bin_dir / name
+        stub.write_text('#!/bin/sh\necho "' + name + ': 2.17.0"\n', encoding="utf-8")
+        stub.chmod(0o755)
+    del sys
+    return bin_dir
+
+
+def test_lazy_probe_skips_optional_tools(tmp_path: Path) -> None:
+    # include_optional=False: optional tools skip their --version subprocess
+    # and appear as placeholders (doctor keeps the eager default).
+    from gseek.adapters.blast import _LAZY_ERROR
+    from gseek.execution import ToolResolver
+
+    resolver = ToolResolver(extra_paths=[_stub_blast_tools(tmp_path)])
+    eager = BlastAdapter().probe(resolver, strict=False)
+    lazy = BlastAdapter().probe(resolver, strict=False, include_optional=False)
+    lazy_probed = {tool.name for tool in lazy.tools if tool.error != _LAZY_ERROR}
+    lazy_placeholders = {tool.name for tool in lazy.tools if tool.error == _LAZY_ERROR}
+    assert {"blastn", "makeblastdb"} <= lazy_probed
+    assert {"blastp", "blastx", "tblastn", "tblastx"} <= lazy_placeholders
+    assert lazy.ok, "required tools must still gate strict probes"
+    assert len(eager.tools) == 6
+
+
+def test_validate_tools_probes_task_binary_on_demand(tmp_path: Path) -> None:
+    # Under lazy probing, validate_tools resolves the task binary on demand
+    # and returns an executor binding.
+    from gseek.adapters.blast import _LAZY_ERROR
+    from gseek.execution import ToolResolver
+
+    bin_dir = _stub_blast_tools(tmp_path)
+    resolver = ToolResolver(extra_paths=[bin_dir])
+    lazy_probe = BlastAdapter().probe(resolver, strict=False, include_optional=False)
+    blastx_entry = next(tool for tool in lazy_probe.tools if tool.name == "blastx")
+    assert blastx_entry.error == _LAZY_ERROR
+
+    request = AlignRequest(
+        query=(_query(tmp_path),), target=(_targets(tmp_path),), params={"task": "blastx"}
+    )
+    bindings = BlastAdapter().validate_tools(request, lazy_probe, resolver)
+    assert bindings is not None and "blastx" in bindings
+    assert Path(str(bindings["blastx"])).name == "blastx"

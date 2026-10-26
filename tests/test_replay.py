@@ -22,7 +22,10 @@ from gseek.runner import run_alignment, run_distance
 class OutOfOrderAdapter(FakeAdapter):
     """Emit records in reverse canonical order to exercise replay hashing."""
 
-    def probe(self, resolver: object, *, strict: bool = False) -> ToolchainProbe:
+    def probe(
+        self, resolver: object, *, strict: bool = False, include_optional: bool = True
+    ) -> ToolchainProbe:
+        del include_optional
         return ToolchainProbe(
             backend="fake",
             tools=(ToolProbe(name="fake-tool", path=Path(sys.executable), version="1.0"),),

@@ -30,6 +30,14 @@ All notable changes to this project are documented here. The format follows
 - `gseek manifest verify` parses the manifest file once instead of twice.
 
 ### Changed
+- BLAST probing is lazy in runs: the runner probes only the required
+  tools (blastn/makeblastdb); task binaries are probed on demand by
+  `validate_tools` (which now receives the resolver and may return
+  `{binary: path}` executor bindings). `gseek doctor` keeps probing the
+  full suite. Fresh-process marker calls through gside drop from ~1.7x
+  to ~1.27x of legacy.
+- `BaseAdapter.probe` accepts `include_optional=False`; custom probe
+  overrides should accept the new keyword.
 - mash rejects same-basename reference files at plan time with an
   actionable `InputError` (their rows would be indistinguishable once
   sketched; external pre-built sketches are exempt).
