@@ -30,6 +30,17 @@ All notable changes to this project are documented here. The format follows
 - `gseek manifest verify` parses the manifest file once instead of twice.
 
 ### Changed
+- Performance (round 2): minimap2 selects tag fields in one pass (no full
+  tag dict per row); sourmash drops per-row `Path()` construction and hoists
+  the query fallback name; `to_tsv` reads record attributes directly instead
+  of building the 30-key dict per row; `to_jsonl` merges the row type into
+  the fresh `to_dict()` result; `input_refs` hashes multiple files
+  concurrently (GIL-releasing hashlib updates); `best_per_query_target`
+  caches the incumbent quality key; `iter_data_lines` fast-paths a single
+  skip prefix; coverage derivation avoids redundant Interval construction;
+  `AlignmentResult`/`DistanceResult` skip re-sorting already-canonical input
+  (keys computed once). `iter_data_lines` documents the single-result-file
+  line-number contract.
 - Performance: `input_ref` hashes and counts uncompressed FASTA in one pass
   (`hash_and_count`; ~45% faster on large references, exact same outputs);
   replay hashes every input exactly once (verify shares the freshly computed

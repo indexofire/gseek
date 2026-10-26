@@ -133,3 +133,9 @@ def test_invalid_index_policy_is_typed_error(fasta_pair, tmp_path) -> None:
     query, target = fasta_pair
     with pytest.raises(ConfigError, match="index"):
         align(query=query, target=target, backend="blast", index="whenever", work_dir=tmp_path)
+
+
+def test_invalid_query_kind_is_typed_error(fasta_pair, tmp_path) -> None:
+    query, target = fasta_pair
+    with pytest.raises(ConfigError, match="query kind"):
+        align(query=query, target=target, backend="blast", query_kind="solid", work_dir=tmp_path)

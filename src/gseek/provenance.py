@@ -5,10 +5,12 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import platform
 import socket
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -29,6 +31,8 @@ from gseek.types import RECIPE_SCHEMA, InputKind, JsonValue
 from gseek.version import __version__
 
 _CHUNK_SIZE = 1024 * 1024
+# Concurrent file-hash workers (hashlib releases the GIL on big updates).
+_HASH_WORKERS = min(8, (os.cpu_count() or 2))
 
 # Parameters that describe how a job is executed rather than what it computes.
 # They are excluded from recipe_hash but preserved in the manifest.
@@ -334,7 +338,25 @@ def input_refs(
     kind: InputKind | None = None,
     compute_records: bool = True,
 ) -> tuple[InputRef, ...]:
-    return tuple(input_ref(path, kind=kind, compute_records=compute_records) for path in paths)
+    """Build :class:`InputRef` values for every path, in input order.
+
+    Two or more files are hashed concurrently: ``hashlib`` releases the GIL
+    on large updates, so multi-reference runs scale with cores instead of
+    walking every file serially.
+    """
+    materialized = tuple(paths)
+    if len(materialized) > 1:
+        workers = min(len(materialized), _HASH_WORKERS)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return tuple(
+                pool.map(
+                    lambda path: input_ref(path, kind=kind, compute_records=compute_records),
+                    materialized,
+                )
+            )
+    return tuple(
+        input_ref(path, kind=kind, compute_records=compute_records) for path in materialized
+    )
 
 
 def tool_refs(tools: Iterable[ToolRef]) -> tuple[ToolRef, ...]:

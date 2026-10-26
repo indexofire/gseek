@@ -17,7 +17,6 @@ from gseek.adapters.base import (
     float_or_none,
     iter_data_lines,
     parse_cigar,
-    parse_tag_fields,
     result_lines,
 )
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement
@@ -28,6 +27,7 @@ from gseek.model import AlignmentRecord, IndexRef
 from gseek.types import IndexScope, InputKind, JsonValue, OutputKind, Strand
 
 _PRESETS = ("sr", "map-ont", "map-hifi", "asm5", "asm10", "asm20")
+_TAG_WHITELIST = frozenset({"tp", "NM", "AS", "ms", "cg", "cs", "de", "rl"})
 _INDEX_FLAGS = {"k": "-k", "w": "-w", "H": "-H", "I": "-I"}
 _ALIGN_FLAGS = {
     "k": "-k",
@@ -235,11 +235,26 @@ class Minimap2Adapter(BaseAdapter):
                     raw_line=line,
                 ) from exc
 
-            tags = parse_tag_fields(fields[12:])
-            is_primary = tags.get("tp", "P") == "P"
+            # Single pass over the tag fields: keep only the whitelist (plus
+            # SA membership) instead of building the full tag dict and then
+            # copying a subset — this runs for every PAF row.
+            selected: dict[str, str] = {}
+            has_sa = False
+            for index in range(12, len(fields)):
+                key, separator, rest = fields[index].partition(":")
+                if not separator:
+                    continue
+                _type, separator, value = rest.partition(":")
+                if not separator:
+                    continue
+                if key == "SA":
+                    has_sa = True
+                elif key in _TAG_WHITELIST:
+                    selected[key] = value
+            is_primary = selected.get("tp", "P") == "P"
             # Supplementary alignments keep tp:A:P but carry an SA tag; mirror
             # bwa's SAM 0x800 semantics (supplementary yet primary).
-            is_supplementary = "SA" in tags
+            is_supplementary = has_sa
             if secondary_mode == "no" and not is_primary:
                 continue
             if target_filter is not None and tname not in target_filter:
@@ -247,7 +262,7 @@ class Minimap2Adapter(BaseAdapter):
 
             gap_count: int | None = None
             gap_openings: int | None = None
-            cigar = tags.get("cg")
+            cigar = selected.get("cg")
             if cigar:
                 try:
                     stats = parse_cigar(cigar)
@@ -264,7 +279,7 @@ class Minimap2Adapter(BaseAdapter):
             identity: float | None = None
             identity_method = "paf_matches"
             if alen > 0:
-                nm_raw = tags.get("NM")
+                nm_raw = selected.get("NM")
                 if nm_raw is None:
                     identity = 100.0 * nmatch / alen
                 else:
@@ -286,11 +301,8 @@ class Minimap2Adapter(BaseAdapter):
                         )
                     identity = 100.0 * max(0, alen - edits) / alen
                     identity_method = "paf_nm"
-            score = float_or_none(tags.get("AS"))
-            record_tags = {"identity_method": identity_method}
-            for key in ("tp", "NM", "AS", "ms", "cg", "cs", "de", "rl"):
-                if key in tags:
-                    record_tags[key] = tags[key]
+            score = float_or_none(selected.get("AS"))
+            record_tags = {"identity_method": identity_method, **selected}
             yield AlignmentRecord(
                 query_id=qname,
                 target_id=tname,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -146,9 +147,15 @@ class AlignmentResult:
     def __post_init__(self) -> None:
         if self.schema != ALIGNMENT_SCHEMA:
             raise InputError(f"unsupported alignment schema: {self.schema!r}")
-        object.__setattr__(
-            self, "records", tuple(sorted(self.records, key=AlignmentRecord.stable_key))
-        )
+        # Compute each key once; skip the O(n log n) sort when the input is
+        # already canonical (replay results, consumer re-wrapping).
+        keys = [record.stable_key() for record in self.records]
+        if any(left > right for left, right in itertools.pairwise(keys)):
+            ordered = sorted(zip(keys, self.records, strict=True), key=lambda pair: pair[0])
+            records = tuple(record for _, record in ordered)
+        else:
+            records = tuple(self.records)
+        object.__setattr__(self, "records", records)
         object.__setattr__(self, "params", dict(self.params))
 
     def __iter__(self) -> Iterator[AlignmentRecord]:
@@ -174,13 +181,16 @@ class AlignmentResult:
         target_coverage)``. Full ties keep the first row, matching the
         historical gmlst ``select_best_matches`` behaviour.
         """
-        best: dict[tuple[str, str], AlignmentRecord] = {}
+        # Cache the incumbent's key: recomputing it per challenger was 2k-1
+        # key builds for a group of size k.
+        best: dict[tuple[str, str], tuple[AlignmentRecord, tuple[float, int, float, float]]] = {}
         for record in self.records:
             key = (record.query_id, record.target_id)
             existing = best.get(key)
-            if existing is None or record.quality_key() > existing.quality_key():
-                best[key] = record
-        return tuple(best.values())
+            challenger_key = record.quality_key()
+            if existing is None or challenger_key > existing[1]:
+                best[key] = (record, challenger_key)
+        return tuple(record for record, _ in best.values())
 
     def summarize_by_target(self) -> tuple[TargetSummary, ...]:
         """Aggregate per-target breadth, weighted identity, and depth.

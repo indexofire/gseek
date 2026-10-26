@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Sequence
+import operator
+from collections.abc import Callable, Iterable, Sequence
 
 from gseek.errors import UsageError
 from gseek.model import AlignmentRecord, AlignmentResult, DistanceResult
@@ -39,7 +40,10 @@ def to_jsonl(result: AlignmentResult | DistanceResult) -> str:
     }
     lines = [json.dumps(header, ensure_ascii=False, sort_keys=True)]
     for record in result.records:
-        payload = {"type": "record", **record.to_dict()}
+        # to_dict() builds a fresh dict per record: insert the row type in
+        # place instead of merging into a second dict.
+        payload = record.to_dict()
+        payload["type"] = "record"
         lines.append(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     status = "error" if result.errors else "warning" if result.warnings else "ok"
     footer = {
@@ -63,10 +67,19 @@ def to_tsv(
             f"unknown TSV columns: {unknown}; expected only {list(DEFAULT_TSV_COLUMNS)}"
         )
     lines = ["\t".join(columns)]
+    getters = tuple(_column_getter(column) for column in columns)
     for record in result.records:
-        payload = record.to_dict()
-        lines.append("\t".join(_format_cell(payload.get(column)) for column in columns))
+        # Direct attribute access: building the 30-key dict per row just to
+        # read 16 scalars costs ~2µs/row on large results.
+        lines.append("\t".join(_format_cell(getter(record)) for getter in getters))
     return "\n".join(lines) + "\n"
+
+
+def _column_getter(column: str) -> Callable[[AlignmentRecord], JsonValue]:
+    """Attribute accessor for a TSV column (``strand`` renders as its value)."""
+    if column == "strand":
+        return lambda record: record.strand.value
+    return operator.attrgetter(column)
 
 
 def _format_cell(value: JsonValue) -> str:

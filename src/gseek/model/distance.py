@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 from collections.abc import Iterator, Mapping
@@ -180,9 +181,15 @@ class DistanceResult:
     def __post_init__(self) -> None:
         if self.schema != DISTANCE_SCHEMA:
             raise InputError(f"unsupported distance schema: {self.schema!r}")
-        object.__setattr__(
-            self, "records", tuple(sorted(self.records, key=DistanceRecord.stable_key))
-        )
+        # See AlignmentResult: one key per record, skip the sort when the
+        # input is already canonical.
+        keys = [record.stable_key() for record in self.records]
+        if any(left > right for left, right in itertools.pairwise(keys)):
+            ordered = sorted(zip(keys, self.records, strict=True), key=lambda pair: pair[0])
+            records = tuple(record for _, record in ordered)
+        else:
+            records = tuple(self.records)
+        object.__setattr__(self, "records", records)
         object.__setattr__(self, "params", dict(self.params))
 
     def __iter__(self) -> Iterator[DistanceRecord]:

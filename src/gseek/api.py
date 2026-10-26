@@ -33,6 +33,19 @@ def _as_paths(value: Path | str | Sequence[Path | str]) -> tuple[Path, ...]:
     return paths
 
 
+def _coerce_query_kind(query_kind: InputKind | str | None) -> InputKind | None:
+    if not isinstance(query_kind, str):
+        return query_kind
+    try:
+        return InputKind(query_kind)
+    except ValueError as exc:
+        raise ConfigError(
+            f"unknown query kind {query_kind!r}; expected one of "
+            f"{[kind.value for kind in InputKind]}",
+            context={"query_kind": query_kind},
+        ) from exc
+
+
 def align(
     *,
     query: Path | str | Sequence[Path | str],
@@ -113,7 +126,7 @@ def align(
     request = AlignRequest(
         query=_as_paths(query),
         target=_as_paths(target),
-        query_kind=InputKind(query_kind) if isinstance(query_kind, str) else query_kind,
+        query_kind=_coerce_query_kind(query_kind),
         paired=paired,
         params=merged_params,
         threads=threads,
@@ -203,7 +216,7 @@ def distance(
     request = DistanceRequest(
         query=_as_paths(query),
         reference=_as_paths(reference),
-        query_kind=InputKind(query_kind) if isinstance(query_kind, str) else query_kind,
+        query_kind=_coerce_query_kind(query_kind),
         params=dict(params or {}),
         threads=threads,
         timeout_s=timeout_s,

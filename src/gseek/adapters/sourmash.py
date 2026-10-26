@@ -210,6 +210,7 @@ class SourmashAdapter(BaseAdapter):
         if mode == "gather":
             yield from _parse_gather(path, request)
             return
+        fallback_query_name = request.query[0].name if request.query else ""
         containment_mode = bool(request.params.get("containment", False))
         k = str(request.params.get("k", _DEFAULT_K))
         scaled = str(request.params.get("scaled", _DEFAULT_SCALED))
@@ -249,7 +250,7 @@ class SourmashAdapter(BaseAdapter):
                         line_number=line_number,
                     )
                 reference_id = _reference_id(row)
-                query_id = _query_id(row, request)
+                query_id = _query_id(row, fallback_query_name)
                 try:
                     score = finite_float(row.get(score_column) or "")
                 except (TypeError, ValueError) as exc:
@@ -288,6 +289,7 @@ class SourmashAdapter(BaseAdapter):
 
 
 def _parse_gather(path: Path, request: DistanceRequest) -> Iterator[DistanceRecord]:
+    fallback_query_name = request.query[0].name if request.query else ""
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
@@ -338,7 +340,7 @@ def _parse_gather(path: Path, request: DistanceRequest) -> Iterator[DistanceReco
                 if row.get(key):
                     tags[key] = row[key]
             yield DistanceRecord(
-                query_id=_query_id(row, request),
+                query_id=_query_id(row, fallback_query_name),
                 reference_id=reference_id,
                 containment=containment,
                 ani=ani,
@@ -346,12 +348,11 @@ def _parse_gather(path: Path, request: DistanceRequest) -> Iterator[DistanceReco
             )
 
 
-def _query_id(row: Mapping[str, str], request: DistanceRequest) -> str:
+def _query_id(row: Mapping[str, str], fallback_name: str) -> str:
     name = (row.get("query_name") or "").strip()
     if name:
         return name
-    first = request.query[0] if request.query else None
-    return first.name if first is not None else ""
+    return fallback_name
 
 
 def _identifier_tags(row: Mapping[str, str]) -> dict[str, str]:
@@ -405,18 +406,22 @@ def _reference_id(row: Mapping[str, str]) -> str:
     ``filename`` is the signature file, not the genome; a gseek-built
     ``targets.sig`` contains every reference, so using its basename would make
     all rows collide. Prefer an explicit signature ``name``, then a genome-like
-    filename, then the unique ``md5``.
+    filename, then the unique ``md5``. String ops instead of Path(): this runs
+    for every CSV row.
     """
     name = (row.get("name") or "").strip()
     if name:
         return name
     filename = (row.get("filename") or "").strip()
     md5 = (row.get("md5") or "").strip()
-    if filename and Path(filename).suffix.lower() not in _SIGNATURE_SUFFIXES:
-        return Path(filename).name
+    dot = filename.rfind(".")
+    suffix = filename[dot:].lower() if dot > 0 else ""
+    basename = filename.rsplit("/", 1)[-1]
+    if filename and suffix not in _SIGNATURE_SUFFIXES:
+        return basename
     if md5:
         return md5
-    return Path(filename).name if filename else ""
+    return basename
 
 
 def _optional_float(value: str | None) -> float | None:

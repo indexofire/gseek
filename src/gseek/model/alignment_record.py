@@ -136,18 +136,25 @@ class AlignmentRecord:
                         context={"query_id": self.query_id, "target_id": self.target_id},
                     )
 
-        if self.query_coverage is None and self.query_interval is not None and self.query_length:
-            object.__setattr__(
-                self,
-                "query_coverage",
-                self.query_interval.length / self.query_length,
-            )
-        if self.target_coverage is None and self.target_interval is not None and self.target_length:
-            object.__setattr__(
-                self,
-                "target_coverage",
-                self.target_interval.length / self.target_length,
-            )
+        # Direct interval arithmetic: (end - start) is exactly
+        # Interval(start, end).length — the coordinates were validated above,
+        # so constructing Interval objects here would be redundant work.
+        if self.query_coverage is None:
+            query_start = self.query_start
+            if query_start is not None and self.query_end is not None and self.query_length:
+                object.__setattr__(
+                    self,
+                    "query_coverage",
+                    (self.query_end - query_start) / self.query_length,
+                )
+        if self.target_coverage is None:
+            target_start = self.target_start
+            if target_start is not None and self.target_end is not None and self.target_length:
+                object.__setattr__(
+                    self,
+                    "target_coverage",
+                    (self.target_end - target_start) / self.target_length,
+                )
 
         object.__setattr__(self, "tags", MappingProxyType(dict(self.tags)))
 

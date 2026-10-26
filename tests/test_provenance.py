@@ -336,3 +336,17 @@ def test_manifest_dict_fields_are_copied(tmp_path: Path) -> None:
     shared_extra["kind"] = "distance"
     assert manifest.params["evalue"] == 1e-5
     assert manifest.extra["kind"] == "alignment"
+
+
+def test_input_refs_parallel_matches_serial_and_preserves_order(tmp_path: Path) -> None:
+    files = []
+    for index in range(6):
+        target = tmp_path / f"ref{index}.fa"
+        target.write_text(f">s{index}\n{'ACGT' * (100 + index)}\n", encoding="utf-8")
+        files.append(target)
+    from gseek.provenance import input_ref, input_refs
+
+    parallel = input_refs(files)
+    serial = tuple(input_ref(path) for path in files)
+    assert parallel == serial
+    assert [ref.path for ref in parallel] == [str(path) for path in files]
