@@ -299,3 +299,58 @@ def test_align_short_options(tmp_path: Path) -> None:
     # replay: -c check
     args = parser.parse_args(["replay", "run.json", "-c"])
     assert args.check is True
+
+
+def test_version_subcommand_removed() -> None:
+    # `gseek version` subcommand removed; only --version / -V remain
+    from gseek.cli import main
+
+    # Returns non-zero (either SystemExit from argparse or UsageError path)
+    try:
+        code = main(["version"])
+        assert code != 0, "gseek version should fail (subcommand removed)"
+    except SystemExit as exc:
+        assert exc.code != 0
+
+
+def test_backends_table_has_borders(capsys: pytest.CaptureFixture[str]) -> None:
+    from gseek.cli import main
+
+    code = main(["backends"])
+    assert code == 0
+    out = capsys.readouterr().out
+    # Either bordered table (backends registered) or empty message (clean env)
+    if "no backends" not in out:
+        assert "┌" in out, "top border"
+        assert "├" in out, "header separator"
+        assert "│" in out, "column separator"
+        assert "└" in out, "bottom border"
+
+
+def test_doctor_table_has_borders(capsys: pytest.CaptureFixture[str]) -> None:
+    import contextlib
+    import io
+
+    from gseek.cli import main
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        main(["doctor"])
+    output = stdout.getvalue()
+    # Either table (backends present) or "no backends" (clean env)
+    if "no backends" not in output:
+        assert "┌" in output or "MISSING" in output
+
+
+def test_index_list_table_has_borders() -> None:
+    from gseek.cli import _render_table
+
+    rows = [
+        {"Adapter": "blast", "Key": "abc123", "Size": "1000 B", "Created": "2026-01-01"},
+        {"Adapter": "mash", "Key": "def456", "Size": "2000 B", "Created": "2026-01-02"},
+    ]
+    output = _render_table(["Adapter", "Key", "Size", "Created"], rows)
+    assert "┌" in output and "┬" in output
+    assert "│ blast" in output
+    assert "│ mash" in output
+    assert "└" in output

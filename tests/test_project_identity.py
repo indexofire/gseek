@@ -45,9 +45,13 @@ def test_cache_uses_gseek_environment(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_cli_is_gseek(capsys) -> None:
+    import pytest
+
     from gseek.cli import main
 
-    assert main(["version"]) == 0
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+    assert exc_info.value.code == 0
     assert capsys.readouterr().out.startswith("gseek ")
 
 

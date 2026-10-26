@@ -7,6 +7,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- CLI: removed the redundant ``version`` subcommand (``--version``/``-V``
+  is the only way to print the version).
+- CLI: ``backends``, ``doctor``, and ``index list`` render bordered Unicode
+  tables (``┌─┬─┐ / ├─┼─┤ / └─┴─┘``) for visual consistency with
+  gmlst/gside/gapit output; ``--json`` output is unchanged.
 - CLI: bare ``gseek`` now prints help and exits 0 instead of a bare
   argparse error; subcommands with missing required arguments print the
   full help before the error line.

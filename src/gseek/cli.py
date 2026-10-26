@@ -158,6 +158,38 @@ def _print_json(value: Any) -> None:
     print(json.dumps(to_jsonable(value), indent=2, ensure_ascii=False, sort_keys=False))
 
 
+def _render_table(columns: list[str], rows: list[dict[str, Any]]) -> str:
+    """Render a Unicode box-drawing table (zero-dependency).
+
+    ``rows`` maps column header → cell value; missing keys render as blanks.
+    """
+    widths = {column: len(column) for column in columns}
+    for row in rows:
+        for column in columns:
+            cell = str(row.get(column, ""))
+            widths[column] = max(widths[column], len(cell))
+
+    def border(left: str, middle: str, right: str) -> str:
+        segments = ["─" * (widths[column] + 2) for column in columns]
+        return left + middle.join(segments) + right
+
+    def cells(row: dict[str, object] | None) -> str:
+        values = [str(row.get(column, "")) for column in columns] if row is not None else columns
+        padded = [
+            f" {value:<{widths[column]}} " for value, column in zip(values, columns, strict=False)
+        ]
+        return "│" + "│".join(padded) + "│"
+
+    lines = [
+        border("┌", "┬", "┐"),
+        cells(None),
+        border("├", "┼", "┤"),
+        *(cells(row) for row in rows),
+        border("└", "┴", "┘"),
+    ]
+    return "\n".join(lines)
+
+
 def _print_error(exc: BaseException, error_format: str) -> None:
     if error_format != "text":
         print(render_error(exc), file=sys.stderr)
@@ -190,13 +222,21 @@ def _cmd_backends(args: argparse.Namespace) -> int:
     if not specs:
         print("no backends registered (see dev/development-plan.md)")
         return 0
+    rows = []
     for spec in specs:
         caps = spec.capabilities
         inputs = "/".join(sorted(kind.value for kind in caps.inputs))
         outputs = "/".join(sorted(kind.value for kind in caps.outputs))
-        print(
-            f"{spec.name:<12} {spec.family:<10} input={inputs:<12} output={outputs:<10} {spec.summary}"
+        rows.append(
+            {
+                "Backend": spec.name,
+                "Family": spec.family,
+                "Input": inputs,
+                "Output": outputs,
+                "Summary": spec.summary,
+            }
         )
+    print(_render_table(["Backend", "Family", "Input", "Output", "Summary"], rows))
     return 0
 
 
@@ -230,12 +270,29 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     elif not report:
         print("no backends registered (nothing to probe)")
     else:
+        rows = []
         for record in report:
             status = "ok" if record["ok"] else "MISSING"
-            print(f"{record['backend']:<12} {status}")
+            rows.append(
+                {
+                    "Backend": record["backend"],
+                    "Status": status,
+                    "Tool": "",
+                    "Version": "",
+                    "Path": "",
+                }
+            )
             for tool in record["tools"]:
-                location = tool["path"] or "-"
-                print(f"  {tool['name']:<14} {tool['version'] or '-':<14} {location}")
+                rows.append(
+                    {
+                        "Backend": "",
+                        "Status": "",
+                        "Tool": tool["name"],
+                        "Version": tool["version"] or "-",
+                        "Path": tool["path"] or "-",
+                    }
+                )
+        print(_render_table(["Backend", "Status", "Tool", "Version", "Path"], rows))
     return 1 if failed else 0
 
 
@@ -248,11 +305,16 @@ def _cmd_index(args: argparse.Namespace) -> int:
         elif not entries:
             print(f"no cached indexes under {store.index_root}")
         else:
-            for entry in entries:
-                print(
-                    f"{entry.adapter:<12} {entry.key[:16]}… {entry.size_bytes:>12} B "
-                    f"{entry.created_at or '-'}"
-                )
+            rows = [
+                {
+                    "Adapter": entry.adapter,
+                    "Key": entry.key[:16] + "…",
+                    "Size": f"{entry.size_bytes:,} B",
+                    "Created": entry.created_at or "-",
+                }
+                for entry in entries
+            ]
+            print(_render_table(["Adapter", "Key", "Size", "Created"], rows))
         return 0
 
     removed = store.gc(
@@ -347,9 +409,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     args = parser.parse_args(resolved)
     try:
-        if args.command == "version":
-            print(f"gseek {__version__}")
-            return 0
         if args.command == "backends":
             return _cmd_backends(args)
         if args.command == "doctor":

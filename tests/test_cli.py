@@ -21,7 +21,11 @@ def clean_registry():
 
 
 def test_version(capsys) -> None:
-    assert main(["version"]) == 0
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+    assert exc_info.value.code == 0
     assert "gseek" in capsys.readouterr().out
 
 
