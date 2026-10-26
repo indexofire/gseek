@@ -12,7 +12,7 @@ from gseek.adapter import (
     PlanContext,
 )
 from gseek.adapters.mash import MashAdapter
-from gseek.errors import ParseError, UnsupportedFeatureError
+from gseek.errors import InputError, ParseError, UnsupportedFeatureError
 from gseek.model import IndexRef
 from gseek.types import IndexScope, InputKind, OutputKind
 
@@ -351,3 +351,37 @@ def test_non_finite_fields_raise_parse_error_with_context(tmp_path: Path) -> Non
     with pytest.raises(ParseError) as exc_info:
         list(MashAdapter().parse_distance(ctx))
     assert exc_info.value.line_number == 1
+
+
+def test_plan_distance_rejects_colliding_reference_basenames(tmp_path: Path) -> None:
+    # Same-basename references sketched into one .msh are indistinguishable;
+    # fail at plan time instead of silently producing ambiguous rows.
+    d1 = tmp_path / "d1"
+    d1.mkdir()
+    d2 = tmp_path / "d2"
+    d2.mkdir()
+    (d1 / "alleles.fa").write_text(">a\nACGT\n", encoding="utf-8")
+    (d2 / "alleles.fa").write_text(">b\nTTTT\n", encoding="utf-8")
+    request = DistanceRequest(
+        query=(_query(tmp_path),),
+        reference=(d1 / "alleles.fa", d2 / "alleles.fa"),
+        params={"mode": "dist"},
+    )
+    with pytest.raises(InputError, match=r"alleles\.fa"):
+        MashAdapter().plan_distance(request, None, PlanContext(workspace=tmp_path / "work"))
+
+
+def test_plan_distance_allows_distinct_reference_basenames(tmp_path: Path) -> None:
+    d1 = tmp_path / "d1"
+    d1.mkdir()
+    d2 = tmp_path / "d2"
+    d2.mkdir()
+    (d1 / "a.fa").write_text(">a\nACGT\n", encoding="utf-8")
+    (d2 / "b.fa").write_text(">b\nTTTT\n", encoding="utf-8")
+    request = DistanceRequest(
+        query=(_query(tmp_path),),
+        reference=(d1 / "a.fa", d2 / "b.fa"),
+        params={"mode": "dist"},
+    )
+    plan = MashAdapter().plan_distance(request, None, PlanContext(workspace=tmp_path / "work"))
+    assert plan.commands  # 正常规划

@@ -30,6 +30,13 @@ All notable changes to this project are documented here. The format follows
 - `gseek manifest verify` parses the manifest file once instead of twice.
 
 ### Changed
+- mash rejects same-basename reference files at plan time with an
+  actionable `InputError` (their rows would be indistinguishable once
+  sketched; external pre-built sketches are exempt).
+- Documented the intentional cross-backend policies in
+  dev/adapter-matrix.md: duplicate target-ID policy per backend (§0.6,
+  with a hint in `DuplicateIdError`) and `query_id` derivation semantics
+  (§0.7, per-sequence defline vs per-file stem/name).
 - Performance (round 2): minimap2 selects tag fields in one pass (no full
   tag dict per row); sourmash drops per-row `Path()` construction and hoists
   the query fallback name; `to_tsv` reads record attributes directly instead

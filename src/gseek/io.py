@@ -374,6 +374,8 @@ def merge_fasta(
                         raise DuplicateIdError(
                             f"duplicate sequence ID {sequence_id!r} in {source} "
                             f"(first seen in {seen[sequence_id]})",
+                            hint="this backend rejects duplicate target IDs; "
+                            "blast/minimap2 accept them (see dev/adapter-matrix.md §0.6)",
                             context={
                                 "sequence_id": sequence_id,
                                 "first": str(seen[sequence_id]),
