@@ -102,6 +102,23 @@ def deduplicate_intervals(records: Iterable[AlignmentRecord]) -> tuple[Alignment
     return tuple(kept)
 
 
+def placement_counts(
+    records: Iterable[AlignmentRecord],
+) -> dict[tuple[str, str], set[tuple[int | None, int | None]]]:
+    """Distinct genomic placements per ``(query_id, target_id)`` pair.
+
+    One O(n) pass over the records; consumers that query many locus pairs
+    (gmlst's ``count_same_copy`` pattern) should use this instead of calling
+    :func:`count_distinct_occurrences` once per pair.
+    """
+    counts: dict[tuple[str, str], set[tuple[int | None, int | None]]] = {}
+    for record in records:
+        counts.setdefault((record.query_id, record.target_id), set()).add(
+            (record.query_start, record.query_end)
+        )
+    return counts
+
+
 def count_distinct_occurrences(
     records: Iterable[AlignmentRecord],
     *,
@@ -127,6 +144,7 @@ __all__ = [
     "DEFAULT_TSV_COLUMNS",
     "count_distinct_occurrences",
     "deduplicate_intervals",
+    "placement_counts",
     "to_jsonl",
     "to_tsv",
 ]

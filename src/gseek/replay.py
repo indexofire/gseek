@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from gseek.adapter import AlignRequest, DistanceRequest
 from gseek.errors import ManifestError, ReplayMismatchError
 from gseek.execution import Executor, ToolResolver
-from gseek.index import IndexStore
+from gseek.index import IndexPolicy, IndexStore
 from gseek.model import AlignmentResult, DistanceResult, Issue, RunManifest
 from gseek.provenance import (
     alignment_result_hash,
@@ -58,7 +59,6 @@ def replay(
     path = Path(manifest)
     document = read_manifest(path)
     root = Path(base_dir) if base_dir is not None else path.parent
-    issues = verify_manifest(document, base_dir=root)
 
     spec = get_backend(document.backend).spec
     kind = str(document.extra.get("kind", ""))
@@ -80,6 +80,22 @@ def replay(
             "manifest has no inputs or targets",
             context={"backend": document.backend},
         )
+    # Hash every input exactly once: the refs feed verification AND the
+    # re-planned run, instead of verify and the runner each re-reading.
+    from gseek.provenance import input_refs
+
+    query_refs = input_refs(query, kind=document.inputs[0].kind)
+    # Sketch references are binary artifacts: hash them, never count records.
+    target_kind = document.targets[0].kind
+    target_refs = input_refs(
+        targets,
+        kind=target_kind,
+        compute_records=target_kind is not InputKind.SKETCH,
+    )
+    prefetched = {
+        str(Path(ref.path).resolve()): (ref.size, ref.sha256) for ref in (*query_refs, *target_refs)
+    }
+    issues = verify_manifest(document, base_dir=root, prefetched=prefetched)
     params = dict(document.params)
     target_filter_raw = params.pop("target_filter", None)
     target_filter = (
@@ -102,40 +118,48 @@ def replay(
     )
 
     if kind == "alignment":
-        from gseek.api import align
+        from gseek.runner import run_alignment
 
-        result: AlignmentResult | DistanceResult = align(
+        result = run_alignment(
+            AlignRequest(
+                query=query,
+                target=targets,
+                query_kind=query_kind,
+                paired=paired,
+                params=params,
+                threads=threads,
+                index_policy=IndexPolicy(index_policy),
+                target_filter=frozenset(target_filter) if target_filter else None,
+            ),
             backend=document.backend,
-            query=query,
-            target=targets,
-            query_kind=query_kind,
-            paired=paired,
-            params=params,
-            threads=threads,
-            index=index_policy,
-            target_filter=target_filter,
             resolver=resolver,
             executor=executor,
             store=store,
+            query_refs=query_refs,
+            target_refs=target_refs,
         )
         actual = alignment_result_hash(result.records)
     else:
-        from gseek.api import distance
+        from gseek.runner import run_distance
 
-        result = distance(
+        result = run_distance(
+            DistanceRequest(
+                query=query,
+                reference=targets,
+                query_kind=query_kind,
+                params=params,
+                threads=threads,
+                index_policy=IndexPolicy(index_policy),
+                external_reference=external_reference,
+                external_sha256=document.targets[0].sha256 if external_reference else None,
+                external_size=document.targets[0].size if external_reference else None,
+            ),
             backend=document.backend,
-            query=query,
-            reference=targets,
-            query_kind=query_kind,
-            params=params,
-            threads=threads,
-            index=index_policy,
-            external_reference=external_reference,
-            external_sha256=document.targets[0].sha256 if external_reference else None,
-            external_size=document.targets[0].size if external_reference else None,
             resolver=resolver,
             executor=executor,
             store=store,
+            query_refs=query_refs,
+            target_refs=target_refs,
         )
         actual = distance_result_hash(result.records)
 

@@ -291,3 +291,23 @@ def test_gc_skips_leased_indexes(tmp_path: Path) -> None:
     removed = store.gc(max_age_days=0.0, dry_run=False)
     assert not any(entry.key == key for entry in removed)
     assert (store.index_root / "fake" / key).exists()
+
+
+def test_staging_records_owner_identity(tmp_path: Path) -> None:
+    # pid reuse keeps garbage staging alive forever; staging must record
+    # boot_id+pid+starttime and validate all three.
+    import json as _json
+
+    store = IndexStore(tmp_path / "cache")
+    staging = store.new_staging("fake", "a" * 64)
+    owner = staging / ".owner.json"
+    assert owner.is_file()
+    identity = _json.loads(owner.read_text(encoding="utf-8"))
+    assert {"boot_id", "pid", "starttime"} <= set(identity)
+
+    # fake 'same pid, different starttime' (pid reuse) must read as dead
+    identity["starttime"] = str(int(identity["starttime"]) + 999999)
+    owner.write_text(_json.dumps(identity), encoding="utf-8")
+    removed = store.gc(dry_run=False)
+    assert any(entry.path == staging and entry.removed for entry in removed)
+    assert not staging.exists()

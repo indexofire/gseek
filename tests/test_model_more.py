@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from gseek.errors import InputError, ManifestError
 from gseek.model import (
+    AlignmentRecord,
     AlignmentResult,
     AlignmentStats,
     CommandRecord,
@@ -201,3 +204,68 @@ def test_run_manifest_defaults_and_status() -> None:
         status=RunStatus.PARTIAL,
     )
     assert manifest.to_dict()["status"] == "partial"
+
+
+def _sample_result(tmp_path: Path) -> AlignmentResult:
+    from gseek.model import build_alignment_stats
+
+    record = AlignmentRecord(
+        query_id="q",
+        target_id="t",
+        identity=99.0,
+        query_start=0,
+        query_end=10,
+        query_length=100,
+        target_start=5,
+        target_end=15,
+        target_length=200,
+        tags={"NM": "1"},
+    )
+    stats = build_alignment_stats((record,), query_count=1, target_count=1, runtime_s=0.01)
+    return AlignmentResult(
+        backend="fake",
+        records=(record,),
+        inputs=(),
+        targets=(),
+        stats=stats,
+        params={"evalue": 1e-5},
+        warnings=(
+            __import__("gseek.model", fromlist=["Issue"]).Issue(
+                code="W", message="note", severity="warning"
+            ),
+        ),
+    )
+
+
+def test_alignment_result_round_trip(tmp_path: Path) -> None:
+    result = _sample_result(tmp_path)
+    document = result.to_dict()
+    assert document["schema"] == "gseek.alignment/1"
+    restored = AlignmentResult.from_dict(document)
+    assert restored == result
+    assert restored.to_dict() == document
+
+
+def test_alignment_result_from_dict_rejects_bad_schema(tmp_path: Path) -> None:
+    from gseek.errors import ParseError
+
+    document = _sample_result(tmp_path).to_dict()
+    document["schema"] = "gseek.alignment/999"
+    with pytest.raises(ParseError, match="schema"):
+        AlignmentResult.from_dict(document)
+
+
+def test_distance_result_round_trip() -> None:
+    record = DistanceRecord(query_id="q", reference_id="r", distance=0.05, tags={"k": "21"})
+    result = DistanceResult(
+        backend="mash",
+        records=(record,),
+        inputs=(),
+        references=(),
+        stats=DistanceStats(record_count=1, query_count=1, reference_count=1, runtime_s=0.0),
+        params={"k": 21},
+    )
+    document = result.to_dict()
+    restored = DistanceResult.from_dict(document)
+    assert restored == result
+    assert restored.to_dict() == document

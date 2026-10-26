@@ -108,3 +108,28 @@ def test_verify_api(fasta_pair, tmp_path: Path) -> None:
         manifest=manifest_path,
     )
     assert verify(manifest_path) == ()
+
+
+def test_preset_conflict_is_rejected(fasta_pair, tmp_path) -> None:
+    # preset 与 params["preset"] 同传但不同值时静默覆盖是配置错误
+    from gseek.errors import ConfigError
+
+    query, target = fasta_pair
+    with pytest.raises(ConfigError, match="preset"):
+        align(
+            query=query,
+            target=target,
+            backend="blast",
+            params={"preset": "sr"},
+            preset="asm5",
+            index="none",
+            work_dir=tmp_path,
+        )
+
+
+def test_invalid_index_policy_is_typed_error(fasta_pair, tmp_path) -> None:
+    from gseek.errors import ConfigError
+
+    query, target = fasta_pair
+    with pytest.raises(ConfigError, match="index"):
+        align(query=query, target=target, backend="blast", index="whenever", work_dir=tmp_path)

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from gseek.adapter import AlignmentAdapter, AlignRequest, DistanceAdapter, DistanceRequest
 from gseek.capabilities import BackendSpec
-from gseek.errors import InputError
+from gseek.errors import ConfigError, InputError
 from gseek.execution import Executor, ToolResolver
 from gseek.index import IndexPolicy, IndexStore
 from gseek.model import AlignmentResult, DistanceResult, Issue, RunManifest
@@ -95,7 +95,21 @@ def align(
     """
     merged_params: dict[str, JsonValue] = dict(params or {})
     if preset is not None:
+        existing = merged_params.get("preset")
+        if existing is not None and str(existing) != str(preset):
+            raise ConfigError(
+                f"preset={preset!r} conflicts with params['preset']={existing!r}",
+                context={"preset": str(preset), "params_preset": str(existing)},
+            )
         merged_params["preset"] = preset
+    try:
+        policy = IndexPolicy(index)
+    except ValueError as exc:
+        raise ConfigError(
+            f"unknown index policy {index!r}; expected one of "
+            f"{[policy.value for policy in IndexPolicy]}",
+            context={"index": str(index)},
+        ) from exc
     request = AlignRequest(
         query=_as_paths(query),
         target=_as_paths(target),
@@ -104,7 +118,7 @@ def align(
         params=merged_params,
         threads=threads,
         timeout_s=timeout_s,
-        index_policy=IndexPolicy(index),
+        index_policy=policy,
         target_filter=frozenset(target_filter) if target_filter is not None else None,
         work_dir=Path(work_dir) if work_dir is not None else None,
         keep_work=keep_work,
@@ -178,6 +192,14 @@ def distance(
         GseekError: Base class for typed failures such as missing tools,
             unsupported capabilities, parse errors, or index failures.
     """
+    try:
+        policy = IndexPolicy(index)
+    except ValueError as exc:
+        raise ConfigError(
+            f"unknown index policy {index!r}; expected one of "
+            f"{[policy.value for policy in IndexPolicy]}",
+            context={"index": str(index)},
+        ) from exc
     request = DistanceRequest(
         query=_as_paths(query),
         reference=_as_paths(reference),
@@ -185,7 +207,7 @@ def distance(
         params=dict(params or {}),
         threads=threads,
         timeout_s=timeout_s,
-        index_policy=IndexPolicy(index),
+        index_policy=policy,
         external_reference=external_reference,
         external_sha256=external_sha256,
         external_size=external_size,

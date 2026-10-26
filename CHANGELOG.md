@@ -6,7 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `AlignmentResult.from_dict` / `DistanceResult.from_dict` /
+  `AlignmentStats.from_dict` / `DistanceStats.from_dict`: the
+  `gseek.alignment/1` and `gseek.distance/1` documents written by the CLI can
+  now be read back by the library itself (schema-checked, record-validated),
+  closing the round-trip gap; `hash_and_count` and `placement_counts` are also
+  public now.
+
 ### Fixed
+- `merge_fasta(on_duplicate="prefix")` disambiguates same-stem sources
+  (`dir1/ref.fa` + `dir2/ref.fa`) with deterministic `_2` suffixes instead of
+  a spurious DuplicateIdError.
+- Staging directories record a boot_id/pid/starttime owner identity, so pid
+  reuse can no longer keep crashed-build garbage alive forever.
+- `align(preset=..., params={"preset": ...})` with conflicting values raises
+  `ConfigError` instead of silently overriding; unknown index policies raise
+  `ConfigError` instead of a bare `ValueError`.
+- `Executor.with_tool_paths` no longer shadows tool paths the caller bound
+  explicitly on their own executor.
+- RunManifest params/env/extra and result params are copied on construction:
+  mutating the caller's dicts no longer drifts recorded provenance.
+- `gseek manifest verify` parses the manifest file once instead of twice.
+
+### Changed
+- Performance: `input_ref` hashes and counts uncompressed FASTA in one pass
+  (`hash_and_count`; ~45% faster on large references, exact same outputs);
+  replay hashes every input exactly once (verify shares the freshly computed
+  refs via `verify_manifest(prefetched=...)` and the runner accepts
+  precomputed `query_refs`/`target_refs`); `parse_cigar` is single-pass with
+  no per-operation list (long-CIGAR records ~27% faster, identical stats);
+  sketch directories are traversed once for both digest and size.
+
 - mash screen no longer truncates reference IDs at `/`: the screen column is
   a sketch defline, not a path (`Path().name` turned
   `"...plasmid/pO157"` into `"pO157"`).

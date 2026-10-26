@@ -7,15 +7,13 @@ import math
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from gseek.errors import InputError
+from gseek.errors import InputError, ParseError
 from gseek.types import DISTANCE_SCHEMA, JsonValue
 
 from .common import InputRef, Issue
-
-if TYPE_CHECKING:
-    from .run import IndexRef, RunManifest
+from .run import IndexRef, RunManifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +147,21 @@ class DistanceStats:
             "runtime_s": self.runtime_s,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DistanceStats:
+        try:
+            return cls(
+                record_count=int(data["record_count"]),
+                query_count=int(data["query_count"]),
+                reference_count=int(data["reference_count"]),
+                runtime_s=float(data["runtime_s"]),
+            )
+        except KeyError as exc:
+            raise ParseError(
+                f"distance stats missing the {exc.args[0]!r} field",
+                context={"field": str(exc.args[0])},
+            ) from exc
+
 
 @dataclass(frozen=True, slots=True)
 class DistanceResult:
@@ -170,6 +183,7 @@ class DistanceResult:
         object.__setattr__(
             self, "records", tuple(sorted(self.records, key=DistanceRecord.stable_key))
         )
+        object.__setattr__(self, "params", dict(self.params))
 
     def __iter__(self) -> Iterator[DistanceRecord]:
         return iter(self.records)
@@ -213,6 +227,38 @@ class DistanceResult:
         if include_manifest and self.manifest is not None:
             data["manifest"] = self.manifest.to_dict()
         return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DistanceResult:
+        """Rebuild a result from its ``gseek.distance/1`` document."""
+        schema = data.get("schema")
+        if schema != DISTANCE_SCHEMA:
+            raise ParseError(
+                f"unsupported distance schema: {schema!r}; expected {DISTANCE_SCHEMA!r}",
+                context={"schema": str(schema)},
+            )
+        try:
+            return cls(
+                backend=str(data["backend"]),
+                records=tuple(DistanceRecord.from_dict(item) for item in data.get("records", ())),
+                inputs=tuple(InputRef.from_dict(item) for item in data.get("inputs", ())),
+                references=tuple(InputRef.from_dict(item) for item in data.get("references", ())),
+                params=dict(data.get("params", {})),
+                stats=DistanceStats.from_dict(data["stats"]),
+                index=IndexRef.from_dict(data["index"]) if data.get("index") is not None else None,
+                manifest=(
+                    RunManifest.from_dict(data["manifest"])
+                    if data.get("manifest") is not None
+                    else None
+                ),
+                warnings=tuple(Issue.from_dict(item) for item in data.get("warnings", ())),
+                errors=tuple(Issue.from_dict(item) for item in data.get("errors", ())),
+            )
+        except KeyError as exc:
+            raise ParseError(
+                f"distance result missing the {exc.args[0]!r} field",
+                context={"field": str(exc.args[0])},
+            ) from exc
 
 
 __all__ = ["DistanceRecord", "DistanceResult", "DistanceStats"]

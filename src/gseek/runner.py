@@ -487,8 +487,15 @@ def run_alignment(
     store: IndexStore | None = None,
     manifest_path: Path | None = None,
     record_manifest: bool = True,
+    query_refs: tuple[InputRef, ...] | None = None,
+    target_refs: tuple[InputRef, ...] | None = None,
 ) -> AlignmentResult:
-    """Run one alignment request and return normalized records plus provenance."""
+    """Run one alignment request and return normalized records plus provenance.
+
+    ``query_refs``/``target_refs`` accept precomputed input references (from
+    :func:`gseek.provenance.input_refs`) so callers that already hashed the
+    files — replay, verify flows — do not pay the full-file scan again.
+    """
     started = time.monotonic()
     # Config errors fail fast: before any probe, index build, or command runs.
     destination = _prepare_manifest_path(manifest_path)
@@ -514,8 +521,12 @@ def run_alignment(
         {tool.name: tool.path for tool in tools if tool.path is not None}
     )
 
-    query_refs = _prepare_queries(request, compute_records=record_manifest)
-    target_files, target_refs = _prepare_targets(request, compute_records=record_manifest)
+    if query_refs is None:
+        query_refs = _prepare_queries(request, compute_records=record_manifest)
+    if target_refs is None:
+        target_files, target_refs = _prepare_targets(request, compute_records=record_manifest)
+    else:
+        target_files = tuple(Path(ref.path) for ref in target_refs)
     # Adapters plan indices from the concrete target files, not the user's
     # original directory arguments.
     effective_request = AlignRequest(
@@ -690,8 +701,14 @@ def run_distance(
     store: IndexStore | None = None,
     manifest_path: Path | None = None,
     record_manifest: bool = True,
+    query_refs: tuple[InputRef, ...] | None = None,
+    target_refs: tuple[InputRef, ...] | None = None,
 ) -> DistanceResult:
-    """Run one MinHash/distance request."""
+    """Run one MinHash/distance request.
+
+    ``query_refs``/``target_refs`` accept precomputed input references so
+    callers that already hashed the files do not pay the scan again.
+    """
     started = time.monotonic()
     # Config errors fail fast: before any probe, index build, or command runs.
     destination = _prepare_manifest_path(manifest_path)
@@ -717,8 +734,12 @@ def run_distance(
         {tool.name: tool.path for tool in tools if tool.path is not None}
     )
 
-    query_refs = _prepare_queries(request, compute_records=record_manifest)
-    target_files, target_refs = _prepare_targets(request, compute_records=record_manifest)
+    if query_refs is None:
+        query_refs = _prepare_queries(request, compute_records=record_manifest)
+    if target_refs is None:
+        target_files, target_refs = _prepare_targets(request, compute_records=record_manifest)
+    else:
+        target_files = tuple(Path(ref.path) for ref in target_refs)
     effective_request = DistanceRequest(
         query=request.query,
         reference=target_files,

@@ -79,6 +79,45 @@ def sha256_file(path: Path, *, chunk_size: int = _CHUNK_SIZE) -> str:
     return digest.hexdigest()
 
 
+def hash_and_count(
+    path: Path, kind: InputKind, *, chunk_size: int = _CHUNK_SIZE
+) -> tuple[str, int]:
+    """Hash a file and count its records in one pass when possible.
+
+    For uncompressed FASTA the header count is accumulated from the same byte
+    chunks fed to the digest (``b"\\n>"`` plus a leading ``b">"``), halving
+    the full-file scans ``input_ref`` performs on every run. Compressed files
+    and FASTQ fall back to the separate passes (FASTQ counting must validate
+    the four-line record structure).
+    """
+    if kind is not InputKind.FASTA or is_compressed(path):
+        return sha256_file(path, chunk_size=chunk_size), count_records(path, kind)
+
+    digest = hashlib.sha256()
+    headers = 0
+    previous_byte = b""
+    try:
+        with path.open("rb") as handle:
+            first = True
+            while chunk := handle.read(chunk_size):
+                digest.update(chunk)
+                if first and chunk[:1] == b">":
+                    headers += 1
+                first = False
+                # A header line starts at a record boundary: the byte before
+                # '>' must be a newline. Keep one byte across chunk edges so a
+                # boundary-spanning "\n>" is not missed or double-counted.
+                if previous_byte == b"\n" and chunk[:1] == b">":
+                    headers += 1
+                headers += chunk.count(b"\n>")
+                previous_byte = chunk[-1:]
+    except OSError as exc:
+        raise InputError(
+            f"cannot read file for hashing: {path}: {exc}", context={"path": str(path)}
+        ) from exc
+    return digest.hexdigest(), headers
+
+
 def _tree_entries(root: Path) -> Iterable[tuple[Path, str, str]]:
     """Yield regular files/directories in deterministic relative-path order.
 
@@ -117,35 +156,41 @@ def sha256_tree(path: Path) -> str:
     identity. Entries are sorted by POSIX relative path and include type, path,
     and regular-file content. Symlinks are rejected.
     """
+    return _tree_digest_and_size(path)[0]
+
+
+def directory_size(path: Path) -> int:
+    """Total size of regular files in a directory tree (symlinks rejected)."""
+    return _tree_digest_and_size(path)[1]
+
+
+def _tree_digest_and_size(path: Path) -> tuple[str, int]:
+    """One traversal producing both the tree digest and its total size.
+
+    ``input_ref`` and ``verify_manifest`` need both; computing them with two
+    separate ``rglob`` walks doubled the stat traffic on large sketch
+    databases (thousands of SST files).
+    """
     root = path.resolve()
     if not root.is_dir():
         raise InputError(f"directory not found: {path}", context={"path": str(path)})
     digest = hashlib.sha256(b"gseek.tree/1\0")
+    total = 0
     for child, relative, kind in _tree_entries(root):
         encoded = relative.encode("utf-8")
         digest.update(kind.encode("ascii") + b"\0")
         digest.update(encoded + b"\0")
         if kind == "F":
-            digest.update(bytes.fromhex(sha256_file(child)))
-    return digest.hexdigest()
-
-
-def directory_size(path: Path) -> int:
-    """Total size of regular files in a directory tree (symlinks rejected)."""
-    root = path.resolve()
-    if not root.is_dir():
-        raise InputError(f"directory not found: {path}", context={"path": str(path)})
-    total = 0
-    for child, _relative, kind in _tree_entries(root):
-        if kind == "F":
             try:
-                total += child.stat().st_size
+                size = child.stat().st_size
             except OSError as exc:
                 raise InputError(
                     f"cannot stat directory entry: {child}: {exc}",
                     context={"path": str(child)},
                 ) from exc
-    return total
+            total += size
+            digest.update(bytes.fromhex(sha256_file(child)))
+    return digest.hexdigest(), total
 
 
 def to_jsonable(value: Any) -> Any:
@@ -257,10 +302,11 @@ def input_ref(
                 "directory inputs are only supported for sketch external references",
                 context={"path": str(path)},
             )
+        digest, size = _tree_digest_and_size(resolved)
         return InputRef(
             path=str(resolved),
-            size=directory_size(resolved),
-            sha256=sha256_tree(resolved),
+            size=size,
+            sha256=digest,
             kind=InputKind.SKETCH,
             records=None,
             compressed=False,
@@ -268,11 +314,14 @@ def input_ref(
     if not resolved.is_file():
         raise InputError(f"input file not found: {path}", context={"path": str(path)})
     resolved_kind = kind or detect_input_kind(resolved)
-    records = count_records(resolved, resolved_kind) if compute_records else None
+    if compute_records:
+        digest, records = hash_and_count(resolved, resolved_kind)
+    else:
+        digest, records = sha256_file(resolved), None
     return InputRef(
         path=str(resolved),
         size=resolved.stat().st_size,
-        sha256=sha256_file(resolved),
+        sha256=digest,
         kind=resolved_kind,
         records=records,
         compressed=is_compressed(resolved),
@@ -411,11 +460,21 @@ def _resolve_ref_path(ref_path: str, base_dir: Path | None) -> Path:
     return base_dir / path
 
 
-def verify_manifest(manifest: RunManifest, *, base_dir: Path | None = None) -> tuple[Issue, ...]:
+def verify_manifest(
+    manifest: RunManifest,
+    *,
+    base_dir: Path | None = None,
+    prefetched: Mapping[str, tuple[int, str]] | None = None,
+) -> tuple[Issue, ...]:
     """Check that recorded files still match their size and SHA-256.
 
     Tool versions are not re-probed here because that requires a resolver; the
     CLI's ``verify`` command can add that check later.
+
+    ``prefetched`` maps a resolved path to a freshly computed ``(size,
+    sha256)``. When present the values are used instead of re-reading the
+    file, letting callers that just hashed the inputs (replay) verify without
+    doubling the I/O; the comparison against the recorded values is unchanged.
     """
     issues: list[Issue] = []
     groups = (
@@ -426,7 +485,10 @@ def verify_manifest(manifest: RunManifest, *, base_dir: Path | None = None) -> t
     for label, refs in groups:
         for ref in refs:
             path = _resolve_ref_path(ref.path, base_dir)
-            if path.is_dir():
+            known = prefetched.get(str(path)) if prefetched is not None else None
+            if known is not None:
+                size, digest = known
+            elif path.is_dir():
                 if not isinstance(ref, InputRef) or ref.kind is not InputKind.SKETCH:
                     issues.append(
                         Issue(
@@ -438,8 +500,7 @@ def verify_manifest(manifest: RunManifest, *, base_dir: Path | None = None) -> t
                     )
                     continue
                 try:
-                    size = directory_size(path)
-                    digest = sha256_tree(path)
+                    digest, size = _tree_digest_and_size(path)
                 except (InputError, OSError) as exc:
                     # verify's job is to report damage, not to die on it.
                     issues.append(

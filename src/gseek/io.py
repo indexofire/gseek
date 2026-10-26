@@ -364,6 +364,7 @@ def merge_fasta(
     dest.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary = _atomic_text_writer(dest)
     seen: dict[str, Path] = {}
+    _prefix_uses: dict[str, int] = {}
     try:
         for source in expanded:
             for record in iter_fasta(source):
@@ -390,7 +391,14 @@ def merge_fasta(
                             uppercase=uppercase,
                         )
                         continue
-                    sequence_id = f"{source.stem}|{sequence_id}"
+                    # Prefix by source stem; same-stem sources (dir1/ref.fa,
+                    # dir2/ref.fa) get deterministic _2/_3 suffixes instead of
+                    # a spurious collision.
+                    stem = source.stem
+                    uses = _prefix_uses.get(stem, 0)
+                    _prefix_uses[stem] = uses + 1
+                    prefix = stem if uses == 0 else f"{stem}_{uses + 1}"
+                    sequence_id = f"{prefix}|{sequence_id}"
                     if sequence_id in seen:
                         raise DuplicateIdError(
                             f"duplicate sequence ID after prefixing: {sequence_id!r}",

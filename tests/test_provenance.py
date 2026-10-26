@@ -290,3 +290,49 @@ def test_to_jsonable_rejects_unstable_set_elements() -> None:
         to_jsonable({Unstable()})
     # Stable order: by type name, then repr.
     assert to_jsonable({"b", 1, None}) == [None, 1, "b"]
+
+
+def test_hash_and_count_matches_separate_passes(tmp_path: Path) -> None:
+    # Single pass must match sha256_file + count_records exactly, including
+    # edges: leading '>', CRLF, no trailing newline, '>' mid-line.
+    from gseek.io import count_records
+    from gseek.provenance import hash_and_count, sha256_file
+    from gseek.types import InputKind
+
+    cases = {
+        "plain.fa": b">a\nACGT\n>b\nTGCA\n",
+        "leading.fa": b">first\nACGT\n>second\nAAAA\n",
+        "crlf.fa": b">a\r\nACGT\r\n>b\r\nTGCA\r\n",
+        "no-trailing.fa": b">a\nACGT\n>b\nTGCA",
+        "mid-gt.fa": b">a\nAC>GT\n>b\nTT\n",
+        "empty-seq.fa": b">a\n>b\nACGT\n",
+        "blank-lines.fa": b"\n>a\nACGT\n\n\n>b\nTT\n",
+    }
+    for name, payload in cases.items():
+        target = tmp_path / name
+        target.write_bytes(payload)
+        digest, records = hash_and_count(target, InputKind.FASTA)
+        assert digest == sha256_file(target), name
+        assert records == count_records(target, InputKind.FASTA), (
+            f"{name}: {records} != {count_records(target, InputKind.FASTA)}"
+        )
+        # Compressed inputs keep the two-pass fallback; equally correct.
+        import gzip
+
+        gz = tmp_path / (name + ".gz")
+        gz.write_bytes(gzip.compress(payload))
+        digest_gz, records_gz = hash_and_count(gz, InputKind.FASTA)
+        assert digest_gz == sha256_file(gz) and records_gz == records
+
+
+def test_manifest_dict_fields_are_copied(tmp_path: Path) -> None:
+    # Aliasing the caller's dicts would let post-construction mutation drift
+    # recipe_hash away from the recorded manifest.
+    base = _manifest(tmp_path)
+    shared_params = {"evalue": 1e-5}
+    shared_extra = {"kind": "alignment"}
+    manifest = dataclasses.replace(base, params=shared_params, extra=shared_extra)
+    shared_params["evalue"] = 1.0
+    shared_extra["kind"] = "distance"
+    assert manifest.params["evalue"] == 1e-5
+    assert manifest.extra["kind"] == "alignment"
