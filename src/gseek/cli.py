@@ -8,7 +8,7 @@ import math
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from gseek import __version__
 from gseek.api import align, backends, distance, replay, verify
@@ -20,18 +20,32 @@ from gseek.registry import get_backend
 from gseek.types import InputKind, JsonValue
 
 
+class _HelpOnErrorHandler(argparse.ArgumentParser):
+    """Print the full help on missing/invalid arguments instead of a bare error.
+
+    Subcommands with missing required arguments land the user in the help
+    text, not in an argparse usage error. Bare ``gseek`` is handled in
+    :func:`main` (exit 0 with help).
+    """
+
+    def error(self, message: str) -> NoReturn:
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\ngseek: error: {message}\n")
+        raise SystemExit(2)
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="gseek", description="Unified DNA alignment infrastructure"
-    )
-    parser.add_argument("--version", action="version", version=f"gseek {__version__}")
+    parser = _HelpOnErrorHandler(prog="gseek", description="Unified DNA alignment infrastructure")
+    parser.add_argument("--version", "-V", action="version", version=f"gseek {__version__}")
     parser.add_argument(
         "--error-format",
         choices=("json", "text"),
         default="json",
         help="error output format (default: json)",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, parser_class=_HelpOnErrorHandler
+    )
 
     subparsers.add_parser("version", help="print the gseek version")
 
@@ -55,7 +69,7 @@ def _build_parser() -> argparse.ArgumentParser:
     manifest_sub = manifest_parser.add_subparsers(dest="manifest_command", required=True)
     manifest_verify = manifest_sub.add_parser("verify", help="verify recorded file hashes")
     manifest_verify.add_argument("path", type=Path)
-    manifest_verify.add_argument("--base-dir", type=Path, default=None)
+    manifest_verify.add_argument("--base-dir", "-d", type=Path, default=None)
     manifest_verify.add_argument("--json", action="store_true")
 
     # Convenience alias matching the plan's `gseek verify run.json`.
@@ -69,6 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--base-dir", type=Path, default=None)
     replay_parser.add_argument(
         "--check",
+        "-c",
         action="store_true",
         help="fail if the canonical result hash differs",
     )
@@ -79,36 +94,38 @@ def _build_parser() -> argparse.ArgumentParser:
         ("distance", "compare queries against references", True),
     ):
         command = subparsers.add_parser(name, help=help_text)
-        command.add_argument("--backend", required=True)
-        command.add_argument("--query", type=Path, action="append", required=True)
+        command.add_argument("--backend", "-b", required=True)
+        command.add_argument("--query", "-q", type=Path, action="append", required=True)
         command.add_argument(
             "--target" if not needs_ref else "--reference",
+            "-t" if not needs_ref else "-r",
             dest="target",
             type=Path,
             action="append",
             required=True,
         )
-        command.add_argument("--threads", type=int, default=1)
+        command.add_argument("--threads", "-j", type=int, default=1)
         if not needs_ref:
-            command.add_argument("--preset", default=None)
-        command.add_argument("--param", action="append", default=[], metavar="KEY=VALUE")
+            command.add_argument("--preset", "-p", default=None)
+        command.add_argument("--param", "-P", action="append", default=[], metavar="KEY=VALUE")
         command.add_argument(
-            "--index", choices=[policy.value for policy in IndexPolicy], default="auto"
+            "--index", "-i", choices=[policy.value for policy in IndexPolicy], default="auto"
         )
-        command.add_argument("--manifest", type=Path, default=None)
+        command.add_argument("--manifest", "-m", type=Path, default=None)
         command.add_argument("--output", "-o", type=Path, default=None)
         if not needs_ref:
             command.add_argument("--paired", action="store_true")
         else:
             command.add_argument(
                 "--external-reference",
+                "-e",
                 action="store_true",
                 help="treat --reference as a pre-built .msh/.sig/.zip artifact",
             )
         command.add_argument(
-            "--query-kind", choices=[kind.value for kind in InputKind], default=None
+            "--query-kind", "-k", choices=[kind.value for kind in InputKind], default=None
         )
-        command.add_argument("--keep-work", action="store_true")
+        command.add_argument("--keep-work", "-K", action="store_true")
 
     return parser
 
@@ -323,7 +340,12 @@ def _cmd_run(args: argparse.Namespace, *, distance_mode: bool) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    resolved = list(sys.argv[1:] if argv is None else argv)
+    if not resolved:
+        # Bare invocation: print help instead of a "required" error.
+        parser.print_help()
+        return 0
+    args = parser.parse_args(resolved)
     try:
         if args.command == "version":
             print(f"gseek {__version__}")

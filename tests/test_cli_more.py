@@ -209,3 +209,93 @@ def test_parse_params_rejects_non_finite_numbers() -> None:
     with pytest.raises(UsageError, match="finite"):
         _parse_params(["y=Infinity"])
     assert _parse_params(["z=1e5", "w=text"]) == {"z": 1e5, "w": "text"}
+
+
+def test_bare_gseek_shows_help(capsys: object) -> None:
+    # Bare gseek prints help and exits 0 (not a cryptic argparse error)
+    from gseek.cli import main
+
+    code = main([])
+    assert code == 0
+
+
+def test_subcommand_missing_args_shows_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # gseek align (no required args) shows full help on stderr before error
+    import pytest
+
+    from gseek.cli import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["align"])
+    assert exc_info.value.code == 2  # missing required args is still an error
+    captured = capsys
+    if hasattr(captured, "readouterr"):
+        err_text = captured.readouterr().err
+        assert "usage" in err_text, "help must be shown before the error"
+
+
+def test_version_short_flag() -> None:
+    import contextlib
+    import io
+
+    from gseek.cli import main
+
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        try:
+            main(["-V"])
+        except SystemExit as exc:
+            assert exc.code == 0
+    assert stdout.getvalue().strip().startswith("gseek ")
+
+
+def test_align_short_options(tmp_path: Path) -> None:
+    # 常用长参数必须有对应的短参数
+    from gseek.cli import _build_parser
+
+    parser = _build_parser()
+
+    # -b backend, -q query, -t target, -m manifest, -o output, -j threads
+    args = parser.parse_args(
+        [
+            "align",
+            "-b",
+            "blast",
+            "-q",
+            "q.fa",
+            "-t",
+            "t.fa",
+            "-m",
+            "m.json",
+            "-o",
+            "out.json",
+            "-j",
+            "2",
+        ]
+    )
+    assert args.backend == "blast"
+    assert args.query == [Path("q.fa")]
+    assert args.target == [Path("t.fa")]
+    assert args.manifest == Path("m.json")
+    assert args.output == Path("out.json")
+    assert args.threads == 2
+
+    # distance: -r reference
+    args = parser.parse_args(
+        [
+            "distance",
+            "-b",
+            "mash",
+            "-q",
+            "q.fa",
+            "-r",
+            "r.msh",
+        ]
+    )
+    assert args.target == [Path("r.msh")]
+
+    # replay: -c check
+    args = parser.parse_args(["replay", "run.json", "-c"])
+    assert args.check is True

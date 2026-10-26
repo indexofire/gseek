@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- CLI: bare ``gseek`` now prints help and exits 0 instead of a bare
+  argparse error; subcommands with missing required arguments print the
+  full help before the error line.
+- CLI: ``-V`` is a short alias for ``--version``.
+- CLI: commonly used flags now have short forms: ``-b`` (backend),
+  ``-q`` (query), ``-t`` (target), ``-r`` (reference), ``-j`` (threads),
+  ``-p`` (preset), ``-P`` (param), ``-i`` (index), ``-m`` (manifest),
+  ``-k`` (query-kind), ``-K`` (keep-work), ``-e``
+  (external-reference), ``-c`` (check), ``-d`` (base-dir).
+
 ## [0.10.2] - 2026-10-26
 
 ### Added
