@@ -28,6 +28,7 @@ def test_builtin_backends_are_registered() -> None:
         "mash",
         "sourmash",
         "skani",
+        "sylph",
     }
 
     assert gseek.get_backend("blastn").spec.name == "blast"
@@ -71,14 +72,11 @@ def test_capability_routing() -> None:
     }
     assert fasta_distance == {"mash", "sourmash", "skani"}
 
-    assert (
-        gseek.find(
-            input=InputKind.FASTQ,
-            output=OutputKind.DISTANCE,
-            paired=True,
-        )
-        == ()
-    )
+    paired_fastq_distance = {
+        spec.name
+        for spec in gseek.find(input=InputKind.FASTQ, output=OutputKind.DISTANCE, paired=True)
+    }
+    assert paired_fastq_distance == {"sylph"}
 
 
 def test_cli_lists_builtin_backends(capsys) -> None:
@@ -93,5 +91,18 @@ def test_cli_lists_builtin_backends(capsys) -> None:
         "mash",
         "sourmash",
         "skani",
+        "sylph",
     }
     assert all(item["family"] for item in payload)
+
+
+def test_sylph_routes_as_fastq_distance_backend() -> None:
+    fastq_distance = {
+        spec.name for spec in gseek.find(input=InputKind.FASTQ, output=OutputKind.DISTANCE)
+    }
+    assert "sylph" in fastq_distance
+    # FASTA distance routing must not include sylph (reads-only)
+    fasta_distance = {
+        spec.name for spec in gseek.find(input=InputKind.FASTA, output=OutputKind.DISTANCE)
+    }
+    assert "sylph" not in fasta_distance

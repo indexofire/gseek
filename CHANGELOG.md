@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- New `sylph` backend (v1.x): `sylph sketch` (reads) + `sylph profile`
+  against a pre-built `.syldb`/`.syl2db` reference (external_reference) or a
+  gseek-planned reference sketch. Records normalize into `DistanceRecord`
+  (ANI, coverage, containment from `Containment_ind`), with abundance columns
+  preserved as tags. Deterministic sketch output names (`<file>.sylsp`,
+  `<R1>.paired.sylsp`) make the two/three-command plan fully static.
+- ADR 0003: backend existence is decided by record-model fit. sylph joins
+  the sketch family; kraken2/bracken stay consumer-side until a second
+  composition-semantics tool justifies a `gseek.profile/1` family.
+
 ## [0.10.1] - 2026-10-26
 
 ### Added

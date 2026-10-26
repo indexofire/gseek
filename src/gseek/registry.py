@@ -28,6 +28,7 @@ BUILTIN_MODULES: tuple[str, ...] = (
     "gseek.adapters.mash",
     "gseek.adapters.sourmash",
     "gseek.adapters.skani",
+    "gseek.adapters.sylph",
 )
 
 _REGISTRY: dict[str, type[BaseAdapter]] = {}
