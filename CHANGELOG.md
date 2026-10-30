@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Docs site: top-tab navigation with page content on the left and the
+  right-hand TOC, matching gmlst/gside; Getting Started, Usage, and Reference
+  now have bilingual landing pages that link their child pages. Chinese tab
+  labels are translated.
+
 ### Fixed
 - CLI: removed the redundant ``version`` subcommand (``--version``/``-V``
   is the only way to print the version).

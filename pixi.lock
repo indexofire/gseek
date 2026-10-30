@@ -307,7 +307,7 @@ packages:
 - pypi: ./
   name: gseek
   version: 0.10.2
-  sha256: 1a5e59199f408dfcfb12756e7aa168de8a662ca2e94f33a663340c091a33d4b5
+  sha256: 5e33a6534f2a0d5bf352ec0245d5dc5ba5bc44fa0bfb2441c22f542e0f01f19f
   requires_dist:
   - pytest>=8.0 ; extra == 'dev'
   - pytest-cov>=5.0 ; extra == 'dev'
@@ -315,6 +315,9 @@ packages:
   - pyright>=1.1 ; extra == 'dev'
   - hypothesis>=6.100 ; extra == 'dev'
   - pre-commit>=3.7 ; extra == 'dev'
+  - mkdocs>=1.6 ; extra == 'dev'
+  - mkdocs-material>=9.5 ; extra == 'dev'
+  - mkdocs-static-i18n>=1.2 ; extra == 'dev'
   - mkdocs>=1.6 ; extra == 'docs'
   - mkdocs-material>=9.5 ; extra == 'docs'
   - mkdocs-static-i18n>=1.2 ; extra == 'docs'

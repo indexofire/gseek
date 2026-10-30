@@ -44,6 +44,9 @@ dev = [
   "pyright>=1.1",
   "hypothesis>=6.100",
   "pre-commit>=3.7",
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "mkdocs-static-i18n>=1.2",
 ]
 docs = [
   "mkdocs>=1.6",

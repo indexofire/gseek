@@ -12,6 +12,10 @@ plugins:
   - search
   - i18n:
       docs_structure: suffix
+      # mkdocs-static-i18n configures Material's header language selector
+      # (extra.alternate) and the per-language search stemmer automatically.
+      reconfigure_material: true
+      reconfigure_search: true
       languages:
         - locale: en
           default: true
@@ -20,12 +24,27 @@ plugins:
         - locale: zh
           name: 简体中文
           build: true
+          nav_translations:
+            Home: 首页
+            Getting Started: 快速上手
+            Usage: 使用
+            Reference: 参考
+            Quickstart: 快速开始
+            Tutorial: 教程
+            CLI: CLI 参考
+            API Reference: API 参考
+            Errors: 错误模型
 
 theme:
   name: material
   language: en
+  # Desktop: top tabs carry the primary pages, content sits on the left, and
+  # the right-hand TOC remains. The primary sidebar is hidden by
+  # stylesheets/extra.css; tablet/mobile keep the drawer navigation.
   features:
     - navigation.tabs
+    - navigation.indexes
+    - navigation.path
     - navigation.sections
     - navigation.top
     - search.suggest
@@ -47,13 +66,23 @@ theme:
 
 nav:
   - Home: index.md
-  - Tutorial: tutorial.md
-  - Quickstart: quickstart.md
-  - CLI: cli.md
-  - Errors: errors.md
-  - API Reference: api.md
+  - Getting Started:
+    - getting-started/index.md
+    - Quickstart: quickstart.md
+    - Tutorial: tutorial.md
+  - Usage:
+    - usage/index.md
+    - CLI: cli.md
+  - Reference:
+    - reference/index.md
+    - API Reference: api.md
+    - Errors: errors.md
+
+extra_css:
+  - stylesheets/extra.css
 
 markdown_extensions:
+  - md_in_html
   - admonition
   - toc:
       permalink: true
