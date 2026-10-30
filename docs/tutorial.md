@@ -19,15 +19,7 @@ bioinformatics environment but have not used gseek before.
 It does **not** decide whether an allele is valid, whether a species call is
 correct, or which phenotype a genome has. Those are consumer rules.
 
-```text
-your pipeline
-    │  request (query, target, params)
-    ▼
- gseek runner
-    │  probe → index → plan → execute → parse
-    ▼
- records + provenance (and optionally a manifest)
-```
+![gseek request flow](assets/diagrams/request-flow.png)
 
 ## 2. Install and check tools
 

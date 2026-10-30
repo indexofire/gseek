@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format follows
   right-hand TOC, matching gmlst/gside; Getting Started, Usage, and Reference
   now have bilingual landing pages that link their child pages. Chinese tab
   labels are translated.
+- Docs content: English and Chinese pages now share the same section
+  structure, API reference, quickstart, CLI, and error-model content.
+- Docs homepage: new hero, feature cards, backend matrix, install and first-call
+  examples, and ecosystem links.
+- Docs diagrams: architecture, run pipeline, and request flow are rendered from
+  the Graphviz sources in `dev/diagrams/` instead of ASCII art.
 
 ### Fixed
 - CLI: removed the redundant ``version`` subcommand (``--version``/``-V``

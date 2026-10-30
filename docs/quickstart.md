@@ -19,15 +19,16 @@ conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 
 ## 2. Install
 
+PyPI release 0.10.2, a locally built wheel, or a source checkout:
+
 ```bash
 pip install gseek==0.10.2
-```
 
-From source:
+# or install the locally built wheel
+uv pip install dist/gseek-0.10.2-py3-none-any.whl
 
-```bash
+# or run from a source checkout
 pip install -e ".[dev]"
-# or inject the source tree
 export PYTHONPATH=/path/to/gseek/src
 ```
 
@@ -35,7 +36,7 @@ Verify:
 
 ```bash
 gseek --version          # gseek 0.10.2
-gseek backends           # capability matrix
+gseek backends           # capability matrix, 8 backends
 gseek doctor             # external tool probe; exits 1 if a tool is missing
 ```
 
@@ -100,7 +101,7 @@ result = gseek.distance(
     backend="mash",
     query=Path("assembly.fna"),
     reference=Path("refs.msh"),
-    external_reference=True,
+    external_reference=True,   # prebuilt .msh, not FASTA
     params={"max_distance": 1.0},
     manifest=Path("runs/mash.manifest.json"),
 )
@@ -116,6 +117,18 @@ gseek distance \
   --manifest runs/mash.manifest.json
 ```
 
+`sourmash` also accepts a **rocksdb directory** as an external reference:
+
+```bash
+gseek distance \
+  --backend sourmash \
+  --query genome.fna \
+  --reference refs.rocksdb \
+  --external-reference \
+  --param k=31 \
+  --param scaled=1000
+```
+
 `sourmash` and `skani` follow the same pattern; see the
 [API reference](api.md#22-gseekdistance) and [CLI reference](cli.md#distance).
 
@@ -126,13 +139,35 @@ gseek verify runs/sample.manifest.json
 gseek replay runs/sample.manifest.json --check --json
 ```
 
-- `verify` checks the files and hashes recorded in the manifest.
-- `replay` re-plans from the manifest and can compare the new `result_hash`.
+- `verify` checks the files and hashes recorded in the manifest; a mismatch
+  exits `4`.
+- `replay` re-plans from the manifest and can compare the new `result_hash`; a
+  mismatch exits `6`.
 - Replay never executes arbitrary argv strings stored in JSON; it asks the
   adapter to plan again.
 
-## Next
+## 7. Troubleshooting
 
-- [API reference](api.md) — complete signatures and result models.
-- [CLI reference](cli.md) — all commands and automation conventions.
-- [Error model](errors.md) — typed errors and exit codes.
+Errors are one-line `gseek.error/1` JSON on stderr by default:
+
+```json
+{"schema":"gseek.error/1","code":"TOOL_NOT_FOUND","message":"...","context":{},"hint":"..."}
+```
+
+For a human-readable message:
+
+```bash
+gseek --error-format text align --backend blast --query q.fna --target t.fna
+```
+
+Library callers catch `gseek.GseekError` and read `code`, `context`, `hint`,
+and `exit_code`. See the [error model](errors.md).
+
+## 8. Next
+
+- [CLI reference](cli.md) — JSON output, exit codes, automation conventions.
+- [API reference](api.md) — result models, adapter protocol, indexes, schemas.
+- [Adapter matrix](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)
+  — tool parameters and version floors.
+- [Compatibility](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)
+  — field differences for gside, gapit, and gmlst.

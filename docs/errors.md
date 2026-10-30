@@ -82,12 +82,25 @@ downgrade; upgrade the tool or choose a compatible adapter.
 
 ### Input/parse errors
 
-`InputError` / `ParseError` usually mean a malformed FASTA/FASTQ or an
-unexpected tool output. Keep the failing file and the tool version; do not
-retry blindly.
+`ParseError` carries `path` and `line_number`; `InputError` carries the input
+path. Keep the failing file and the tool version; do not retry blindly.
 
 ### Replay mismatch
 
-`ReplayMismatchError` means the replayed result hash differs from the manifest.
-Check whether inputs, tool versions, parameters, or the environment changed.
+`ReplayMismatchError` means the replayed canonical `result_hash` differs from
+the manifest. Check, in order:
+
+1. whether an external tool version changed;
+2. whether the reference or input file hash changed;
+3. whether a different index state was used;
+4. whether the manifest came from another gseek version.
+
 A replay mismatch is a reproducibility signal, not a transient failure.
+
+## What not to do
+
+- Do not branch on error message text; use `code` or the exception type.
+- Do not swallow `GseekError` and return an empty result; callers cannot tell
+  "no hits" from "failed".
+- Do not wrap `KeyboardInterrupt` in `GseekError`; the CLI returns `130`.
+- Do not parse the `text` error format in automation; use the default JSON.

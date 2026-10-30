@@ -38,17 +38,7 @@ gseek.INDEX_SCHEMA       # "gseek.index/1"
 
 ### 1.1 One run
 
-```text
-validate request
-  → select adapter
-  → probe tools
-  → resolve/build index
-  → plan command(s)
-  → execute
-  → parse/normalize
-  → sort records
-  → optional manifest
-```
+![gseek run pipeline](assets/diagrams/run-pipeline.png)
 
 Adapters plan argv and parse output. `gseek.execution` is the only layer that
 starts subprocesses. The runner owns orchestration and provenance.

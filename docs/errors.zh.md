@@ -5,7 +5,7 @@
 gseek 的失败分为**类型化异常**和**稳定的进程退出码**。库调用方应捕获
 `gseek.GseekError` 并读取字段，而不是解析错误字符串。
 
-## 1. 异常层级
+## 异常层级
 
 所有已知错误继承 `GseekError`：
 
@@ -42,7 +42,7 @@ except GseekError as exc:
 
 `InputError` 的子类保留自己的 `code`，但沿用退出码 `5`。
 
-## 2. JSON envelope
+## JSON envelope
 
 `GseekError.to_dict()` 和 CLI 默认 stderr 都使用 `gseek.error/1`：
 
@@ -64,38 +64,42 @@ gseek --error-format text align ...
 # hint: ...
 ```
 
-## 3. 常见处理方式
+## 常见处理方式
 
 ### 工具缺失
 
 ```python
 except ToolNotFoundError as exc:
-    # 先跑 gseek doctor，或设置 GSEEK_<BINARY>
     raise SystemExit(f"install {exc.context.get('binary', 'the tool')}")
 ```
 
+先运行 `gseek doctor`，或通过 `GSEEK_<BINARY>` 指定明确路径。
+
 ### 版本过旧
 
-`ToolVersionError` 的 `context` 包含 `required` / `found`。不要静默降级；升级工具或
+`ToolVersionError.context` 包含 `required` / `found`。不要静默降级；升级工具或
 显式选择兼容适配器。
 
 ### 输入/解析错误
 
-`ParseError` 带 `path` / `line_number`；`InputError` 带输入路径。不要只打印
-`str(exc)`，保留上下文便于定位。
+`ParseError` 带 `path` 与 `line_number`；`InputError` 带输入路径。保留出错文件与
+工具版本，不要盲目重试。
 
 ### replay 不一致
 
-`ReplayMismatchError` 表示同一 recipe 的 canonical `result_hash` 不同。优先检查：
+`ReplayMismatchError` 表示 replay 得到的 canonical `result_hash` 与 manifest
+不同。依次检查：
 
 1. 外部工具版本是否变化；
 2. 参考/输入文件哈希是否变化；
 3. 是否使用了不同的 index 状态；
 4. manifest 是否来自另一个 gseek 版本。
 
-## 4. 不要做的事
+replay 不一致是可复现性信号，不是瞬时故障。
+
+## 不要做的事
 
 - 不要按错误消息文本分支；用 `code` 或异常类型。
 - 不要吞掉 `GseekError` 后返回空结果；调用方无法区分“无命中”和“失败”。
 - 不要把 `KeyboardInterrupt` 包装成 `GseekError`；CLI 返回 `130`。
-- 不要在 CLI 自动化里解析 `text` 错误格式；用默认 JSON。
+- 不要在自动化里解析 `text` 错误格式；用默认 JSON。

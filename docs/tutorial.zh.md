@@ -17,15 +17,7 @@ gseek 的 Python 用户。
 
 它**不**判断 allele 是否有效、物种判定是否正确、基因型/表型是什么；这些是消费者规则。
 
-```text
-你的 pipeline
-    │  request (query, target, params)
-    ▼
- gseek runner
-    │  probe → index → plan → execute → parse
-    ▼
- records + provenance（可选 manifest）
-```
+![gseek 请求流程](assets/diagrams/request-flow.zh.png)
 
 ## 2. 安装与检查工具
 

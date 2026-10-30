@@ -19,24 +19,24 @@ conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 
 ## 2. 安装
 
-PyPI 已发布 0.10.2。也可以使用本地 wheel 或源码：
+可以选择 PyPI 发布的 0.10.2、本地构建的 wheel，或源码开发模式：
 
 ```bash
-# 本地 wheel（推荐验证发布物）
+pip install gseek==0.10.2
+
+# 或安装本地构建的 wheel
 uv pip install dist/gseek-0.10.2-py3-none-any.whl
 
-# 或源码开发模式
+# 或从源码运行
 pip install -e ".[dev]"
-
-# 或临时注入源码
 export PYTHONPATH=/path/to/gseek/src
 ```
 
-确认：
+确认安装：
 
 ```bash
 gseek --version          # gseek 0.10.2
-gseek backends           # 8 个后端
+gseek backends           # 能力矩阵，8 个后端
 gseek doctor             # 检查外部工具；缺失时返回 1
 ```
 
@@ -54,10 +54,14 @@ gseek align \
   -o runs/sample.json
 ```
 
+关键参数：
+
 - `--index auto`：命中内容寻址缓存则复用，否则构建。
-- `--manifest`：记录输入哈希、工具版本、命令、结果哈希。
+- `--manifest`：写出 `gseek.run/1`，记录输入哈希、工具版本、命令与结果哈希。
 - `-o`：结果 JSON；不写则输出到 stdout。
-- 退出码：`0` 成功；`2` 用法错误；`3` 工具缺失；`4` 执行/索引；`5` 输入/解析；`6` replay 不一致。
+
+退出码：`0` 成功；`2` 用法错误；`3` 工具缺失；`4` 执行/索引；`5` 输入/解析；
+`6` replay 不一致。
 
 查看结果：
 
@@ -85,22 +89,22 @@ result = gseek.align(
 print(result.stats.record_count)
 for hit in result.records:
     print(hit.query_id, hit.target_id, hit.identity, hit.target_coverage)
+
+best = result.best_per_query_target()
 ```
 
-`gseek.distance(...)` 用于 mash/sourmash/skani：
+## 5. 距离与 ANI
 
 ```python
 result = gseek.distance(
     backend="mash",
     query=Path("assembly.fna"),
     reference=Path("refs.msh"),
-    external_reference=True,   # reference 是预构建 .msh，不是 FASTA
+    external_reference=True,   # 预构建 .msh，不是 FASTA
     params={"max_distance": 1.0},
     manifest=Path("runs/mash.manifest.json"),
 )
 ```
-
-CLI 等价：
 
 ```bash
 gseek distance \
@@ -112,7 +116,7 @@ gseek distance \
   --manifest runs/mash.manifest.json
 ```
 
-sourmash 也可以把 **rocksdb 目录**作为 external reference：
+`sourmash` 也可以把 **rocksdb 目录**作为 external reference：
 
 ```bash
 gseek distance \
@@ -124,18 +128,21 @@ gseek distance \
   --param scaled=1000
 ```
 
-## 5. 校验与重放
+`sourmash` 与 `skani` 的使用方式相同；参见 [API 参考](api.zh.md#22-gseekdistance)
+与 [CLI 参考](cli.zh.md#distance)。
+
+## 6. 校验与重放
 
 ```bash
 gseek verify runs/sample.manifest.json
 gseek replay runs/sample.manifest.json --check --json
 ```
 
-- `verify` 校验 manifest 中记录的文件哈希；不一致返回 `4`。
-- `replay` 按 adapter 重新规划，**不会执行 manifest 里的 argv**；`--check` 比较
-  canonical `result_hash`，不一致返回 `6`。
+- `verify` 校验 manifest 中记录的文件与哈希；不一致返回 `4`。
+- `replay` 按 manifest 重新规划，并可比较新的 `result_hash`；不一致返回 `6`。
+- replay **不会执行 manifest 里的 argv**；它让适配器重新规划。
 
-## 6. 出错时
+## 7. 出错时
 
 默认错误是 stderr 上的一行 `gseek.error/1` JSON：
 
@@ -149,12 +156,14 @@ gseek replay runs/sample.manifest.json --check --json
 gseek --error-format text align --backend blast --query q.fna --target t.fna
 ```
 
-库调用方捕获 `gseek.GseekError`，读取 `code`、`context`、`hint`、`exit_code`。
+库调用方捕获 `gseek.GseekError`，读取 `code`、`context`、`hint` 与 `exit_code`。
 详见 [错误模型](errors.zh.md)。
 
-## 7. 下一步
+## 8. 下一步
 
-- [CLI 约定](cli.zh.md)：JSON、退出码、自动化注意事项
-- [API 参考](api.zh.md)：结果模型、适配器协议、索引与 schema
-- [适配器矩阵](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)：各工具参数与版本
-- [兼容性迁移](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)：gside/gapit/gmlst 的字段差异
+- [CLI 参考](cli.zh.md)：JSON 输出、退出码、自动化约定。
+- [API 参考](api.zh.md)：结果模型、适配器协议、索引与 schema。
+- [适配器矩阵](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)：
+  各工具参数与版本下限。
+- [兼容性迁移](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)：
+  gside、gapit、gmlst 的字段差异。

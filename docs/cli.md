@@ -3,7 +3,9 @@
 **English** | [简体中文](https://indexofire.github.io/gseek/zh/cli/)
 
 The CLI is a thin wrapper over the public API: argument parsing, JSON output,
-and exit-code mapping. It never executes a shell string.
+and exit-code mapping. It never executes a shell string. It is designed for CI,
+Snakemake/Nextflow, and interactive debugging. The full option matrix is in the
+[API reference §10](api.md#10-cli).
 
 ## Global options
 
@@ -61,18 +63,22 @@ Key options:
 ## distance
 
 ```bash
+# FASTA reference: gseek builds or reuses an index
+gseek distance --backend sourmash --query genome.fna --reference refs/ -o out.json
+
+# prebuilt mash sketch
 gseek distance \
   --backend mash \
   --query assembly.fna \
   --reference refs.msh \
   --external-reference \
-  --param max_distance=1.0 \
-  --manifest runs/mash.manifest.json
+  --param max_distance=1.0
 ```
 
-`--external-reference` means the reference is already a sketch/database (for
-example a `.msh` file or a sourmash rocksdb directory) rather than FASTA to be
-indexed. Omit it when gseek should build the reference itself.
+`--external-reference` means the reference is already a sketch or database — a
+single `.msh` / `.sig` / `.zip`, a sourmash rocksdb directory, or a skani
+database directory — rather than FASTA to be indexed. gseek does not re-sketch
+it; directories are recorded by a deterministic tree hash.
 
 ## Machine-readable output
 
@@ -81,6 +87,13 @@ indexed. Omit it when gseek should build the reference itself.
 - `--json` on informational commands (`backends`, `doctor`, `index list`,
   `index gc`, `verify`, `replay`) emits a JSON document instead of text.
 - Progress and notices never contaminate stdout.
+
+Examples:
+
+```bash
+gseek backends --json | jq '.[].name'
+gseek doctor --json | jq '.[] | select(.ok == false)'
+```
 
 ## Exit codes
 
@@ -93,13 +106,17 @@ indexed. Omit it when gseek should build the reference itself.
 | `4` | execution, index, cache, or manifest error |
 | `5` | input or parse error |
 | `6` | replay `result_hash` mismatch |
+| `130` | interrupted by the user |
 
 ## Automation notes
 
-- Prefer explicit `--manifest` paths in pipelines; they are the reproducibility
-  boundary.
-- `gseek replay --check` is safe for untrusted manifests: it re-plans through
-  adapters instead of executing recorded argv.
-- `gseek index gc` is a dry run unless `--apply` is passed.
-- `--error-format json` is stable for machine parsing; do not parse
-  human-readable text.
+1. Do not parse human-readable output; use `--json` or the `align`/`distance`
+   JSON document.
+2. On failure, read the process exit code first, then parse the
+   `gseek.error/1` JSON on stderr.
+3. `gseek replay --check` is safe for untrusted manifests: it re-plans through
+   adapters instead of executing recorded argv.
+4. Concurrent calls share index file locks; run `gseek index gc --apply` when
+   no build is in flight.
+5. External tools must be discoverable via `GSEEK_<BINARY>`,
+   `GSEEK_PATH_PREPEND`, or `PATH`; run `gseek doctor` first.

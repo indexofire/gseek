@@ -1,0 +1,18 @@
+digraph request_flow {
+  graph [rankdir=TB, bgcolor="white", pad="0.20", nodesep="0.20", ranksep="0.28",
+         fontname="Noto Sans CJK SC", fontsize="10"];
+  node [shape=box, style="rounded,filled", width="6.0", fontname="Noto Sans CJK SC",
+        fontsize="10", margin="0.20,0.12", penwidth="1.2"];
+  edge [color="#7986cb", penwidth="1.4", arrowsize="0.75"];
+
+  pipeline [label=<<B>你的流水线</B><BR/><FONT POINT-SIZE="9">request：query · target · 参数</FONT>>,
+            fillcolor="#e8eaf6", color="#c5cae9", fontcolor="#1a237e"];
+  runner [label=<<B>gseek 运行器</B><BR/><FONT POINT-SIZE="9">探测工具 → 索引 → 计划 → 执行 → 解析</FONT>>,
+          fillcolor="#fff8e1", color="#ffe0b2", fontcolor="#4e342e"];
+  records [label=<<B>Records + provenance</B><BR/><FONT POINT-SIZE="9">规范化 · 稳定排序 · 无损</FONT>>,
+           fillcolor="#e8f5e9", color="#a5d6a7", fontcolor="#1b5e20"];
+  manifest [label=<<B>可选 manifest</B><BR/><FONT POINT-SIZE="9">gseek.run/1 · verify · replay</FONT>>,
+            fillcolor="#f3e5f5", color="#ce93d8", fontcolor="#4a148c"];
+
+  pipeline -> runner -> records -> manifest;
+}

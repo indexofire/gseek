@@ -8,3 +8,101 @@
     display: none;
   }
 }
+
+/* Homepage hero */
+.gseek-hero {
+  margin: 0 0 1.8rem;
+  padding: 2.4rem 2.2rem 2rem;
+  border-radius: 0.8rem;
+  background: linear-gradient(135deg, #303f9f 0%, #3f51b5 52%, #5e35b1 100%);
+  color: #fff;
+  box-shadow: 0 12px 30px rgba(48, 63, 159, 0.22);
+}
+
+.gseek-hero h1 {
+  margin: 0 0 0.5rem;
+  color: #fff;
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.gseek-hero p {
+  max-width: 48rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.gseek-hero strong {
+  color: #fff;
+}
+
+.gseek-hero .gseek-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1rem 0 1.2rem;
+}
+
+.gseek-badge {
+  display: inline-block;
+  padding: 0.12rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.gseek-hero .md-button {
+  margin: 0.2rem 0.4rem 0.2rem 0;
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+}
+
+.gseek-hero .md-button:hover {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.gseek-hero .md-button--primary {
+  border-color: #fff;
+  background: #fff;
+  color: #303f9f;
+}
+
+.gseek-hero .md-button--primary:hover {
+  background: #e8eaf6;
+  color: #1a237e;
+}
+
+.gseek-hero code {
+  background: rgba(0, 0, 0, 0.18);
+  color: #fff;
+}
+
+[data-md-color-scheme="slate"] .gseek-hero {
+  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #4527a0 100%);
+  box-shadow: none;
+}
+
+@media screen and (max-width: 44.9375em) {
+  .gseek-hero {
+    padding: 1.5rem 1.2rem;
+  }
+
+  .gseek-hero h1 {
+    font-size: 1.7rem;
+  }
+}
+
+/* Rendered diagrams */
+.md-typeset img[src*="assets/diagrams/"] {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  margin: 1.2rem auto;
+}

@@ -1,0 +1,24 @@
+digraph pipeline {
+  graph [rankdir=TB, bgcolor="white", pad="0.20", nodesep="0.20", ranksep="0.24",
+         fontname="Noto Sans CJK SC", fontsize="10"];
+  node [shape=box, style="rounded,filled", width="5.8", fontname="Noto Sans CJK SC",
+        fontsize="9", margin="0.18,0.10", penwidth="1.2"];
+  edge [color="#7986cb", penwidth="1.3", arrowsize="0.7"];
+
+  request [label=<<B>1 · Validate request</B><BR/><FONT POINT-SIZE="8">adapter · inputs · parameters</FONT>>,
+           fillcolor="#e8eaf6", color="#c5cae9", fontcolor="#1a237e"];
+  probe [label=<<B>2 · Probe tools</B><BR/><FONT POINT-SIZE="8">resolved path + version</FONT>>,
+         fillcolor="#e8eaf6", color="#c5cae9", fontcolor="#1a237e"];
+  index [label=<<B>3 · Resolve or build index</B><BR/><FONT POINT-SIZE="8">content-addressed key + cache</FONT>>,
+         fillcolor="#e8eaf6", color="#c5cae9", fontcolor="#1a237e"];
+  plan [label=<<B>4 · Plan commands</B><BR/><FONT POINT-SIZE="8">argv only, no shell</FONT>>,
+        fillcolor="#fff8e1", color="#ffe0b2", fontcolor="#4e342e"];
+  execute [label=<<B>5 · Execute</B><BR/><FONT POINT-SIZE="8">only gseek.execution starts processes</FONT>>,
+           fillcolor="#fff8e1", color="#ffe0b2", fontcolor="#4e342e"];
+  parse [label=<<B>6 · Parse + normalize</B><BR/><FONT POINT-SIZE="8">0-based half-open records</FONT>>,
+         fillcolor="#e8f5e9", color="#a5d6a7", fontcolor="#1b5e20"];
+  manifest [label=<<B>7 · Sort + manifest</B><BR/><FONT POINT-SIZE="8">stable order · gseek.run/1 (optional)</FONT>>,
+            fillcolor="#e8f5e9", color="#a5d6a7", fontcolor="#1b5e20"];
+
+  request -> probe -> index -> plan -> execute -> parse -> manifest;
+}
