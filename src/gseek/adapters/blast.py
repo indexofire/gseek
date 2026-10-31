@@ -96,6 +96,7 @@ _ALLOWED_PARAMS = frozenset(
     {
         "task",
         "dbtype",
+        "db",
         "evalue",
         "max_targets",
         "max_target_seqs",
@@ -228,6 +229,12 @@ class BlastAdapter(BaseAdapter):
 
     def plan_index(self, request: IndexRequest, ctx: PlanContext) -> IndexPlan:
         params = _validated_params(request.params)
+        if _external_db(params) is not None:
+            raise UnsupportedFeatureError(
+                "params['db'] selects a consumer-owned BLAST database;"
+                " pass index='none' instead of building a gseek index",
+                context={"db": str(params["db"])},
+            )
         dbtype = _dbtype_for(params)
         index_dir = (ctx.index_dir or ctx.workspace).resolve()
         index_dir.mkdir(parents=True, exist_ok=True)
@@ -270,7 +277,16 @@ class BlastAdapter(BaseAdapter):
         task = _task_from(params)
         binary = _TASK_TO_BINARY[task]
         expected_dbtype = _TASK_TO_DBTYPE[task]
-        if index is not None:
+        external_db = _external_db(params)
+        if external_db is not None and index is not None:
+            raise UnsupportedFeatureError(
+                "params['db'] and a gseek index are mutually exclusive"
+                " (pass index='none' when using a consumer-owned BLAST database)",
+                context={"db": str(external_db)},
+            )
+        if external_db is not None:
+            subject_args = ("-db", str(external_db))
+        elif index is not None:
             index_dbtype = str(index.params.get("dbtype", expected_dbtype)).lower()
             if index_dbtype != expected_dbtype:
                 raise UnsupportedFeatureError(
@@ -447,7 +463,30 @@ def _validated_params(params: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
         )
     _task_from(params)
     _dbtype_for(params)
+    _external_db(params)
     return {str(key): value for key, value in params.items()}
+
+
+def _external_db(params: Mapping[str, JsonValue]) -> Path | None:
+    """Resolve a caller-owned BLAST database prefix (``params['db']``)."""
+    raw = params.get("db")
+    if raw is None:
+        return None
+    if not isinstance(raw, (str, Path)):
+        raise UnsupportedFeatureError(
+            f"db must be a path, got {type(raw).__name__}",
+            context={"db": repr(raw)},
+        )
+    prefix = Path(raw).resolve()
+    if not any(
+        prefix.parent.joinpath(f"{prefix.name}{suffix}").exists()
+        for suffix in (".nhr", ".nin", ".nsq", ".phr", ".pin", ".psq")
+    ):
+        raise UnsupportedFeatureError(
+            f"BLAST database not found at {prefix}",
+            context={"db": str(prefix)},
+        )
+    return prefix
 
 
 def _task_from(params: Mapping[str, JsonValue]) -> str:

@@ -114,6 +114,9 @@ makeblastdb -in targets.fasta -dbtype nucl|prot -out <index>/targets -title <tit
 - 产物：`targets.nhr/.nin/.nsq`（nucl）或 `.phr/.pin/.psq`（prot）。
 - 索引 key 必须包含：`dbtype`、`target` 内容哈希、`makeblastdb` 版本、`-parse_seqids` 等参数。
 - 目标 FASTA 必须由 `gseek.io.merge_fasta` 生成，保证 ID 无空白、顺序稳定、可哈希。
+- **外部数据库**：消费者已有 BLAST 索引时，传 `params={"db": "<prefix>"}` 且 `index="none"`，
+  适配器直接使用 `-db <prefix>`，不建 gseek 索引；同时传 `db` 和 gseek index 是
+  `UnsupportedFeatureError`。
 
 ### 2.3 比对命令（核酸）
 

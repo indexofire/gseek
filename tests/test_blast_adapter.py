@@ -189,6 +189,69 @@ def test_plan_align_without_index_uses_subject(tmp_path: Path) -> None:
     assert "arcC_2" in merged.read_text(encoding="utf-8")
 
 
+def test_plan_align_uses_an_external_blast_db(tmp_path: Path) -> None:
+    """Given a consumer-owned BLAST database and index='none', When planning,
+    Then blastn runs against that -db directly instead of materializing a
+    subject FASTA or building gseek's own index."""
+    query = _query(tmp_path)
+    target = _targets(tmp_path)
+    db_prefix = tmp_path / "owned" / "sequences"
+    db_prefix.parent.mkdir()
+    for suffix in (".nhr", ".nin", ".nsq"):
+        (db_prefix.parent / f"{db_prefix.name}{suffix}").touch()
+    request = AlignRequest(
+        query=(query,),
+        target=(target,),
+        params={"db": str(db_prefix), "evalue": 1e-10},
+    )
+    plan = BlastAdapter().plan_align(
+        request,
+        None,
+        PlanContext(workspace=tmp_path / "work"),
+    )
+    argv = plan.commands[0].argv
+    assert argv[argv.index("-db") + 1] == str(db_prefix.resolve())
+    assert "-subject" not in argv
+    assert argv[argv.index("-evalue") + 1] == "1e-10"
+
+
+def test_external_db_and_index_are_mutually_exclusive(tmp_path: Path) -> None:
+    """Given both params['db'] and a gseek index, When planning, Then the
+    ambiguity is a typed usage error rather than silently picking one."""
+    query = _query(tmp_path)
+    target = _targets(tmp_path)
+    request = AlignRequest(
+        query=(query,),
+        target=(target,),
+        params={"db": str(tmp_path / "owned" / "sequences")},
+    )
+    with pytest.raises(UnsupportedFeatureError, match=r"db.*index"):
+        BlastAdapter().plan_align(
+            request,
+            _index(),
+            PlanContext(workspace=tmp_path / "work"),
+        )
+
+
+def test_external_db_rejects_index_planning(tmp_path: Path) -> None:
+    """Given params['db'], When an index build is planned, Then fail with a
+    typed error instead of silently building an unused gseek index."""
+    target = _targets(tmp_path)
+    db_prefix = tmp_path / "owned" / "sequences"
+    db_prefix.parent.mkdir()
+    for suffix in (".nhr", ".nin", ".nsq"):
+        (db_prefix.parent / f"{db_prefix.name}{suffix}").touch()
+    request = IndexRequest(
+        target=(target,),
+        params={"db": str(db_prefix)},
+    )
+    with pytest.raises(UnsupportedFeatureError, match=r"db.*index"):
+        BlastAdapter().plan_index(
+            request,
+            PlanContext(workspace=tmp_path / "work", index_dir=tmp_path / "index"),
+        )
+
+
 def test_parse_forward_reverse_and_gapped_rows(tmp_path: Path) -> None:
     lines = [
         _row(),

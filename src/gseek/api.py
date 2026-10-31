@@ -10,7 +10,7 @@ from gseek.capabilities import BackendSpec
 from gseek.errors import ConfigError, InputError
 from gseek.execution import Executor, ToolResolver
 from gseek.index import IndexPolicy, IndexStore
-from gseek.model import AlignmentResult, DistanceResult, Issue, RunManifest
+from gseek.model import AlignmentResult, DistanceResult, InputRef, Issue, RunManifest
 from gseek.provenance import read_manifest, verify_manifest
 from gseek.registry import (
     backend_specs,
@@ -46,6 +46,24 @@ def _coerce_query_kind(query_kind: InputKind | str | None) -> InputKind | None:
         ) from exc
 
 
+def _precomputed_refs(
+    refs: Sequence[InputRef] | None,
+    paths: tuple[Path, ...],
+    *,
+    role: str,
+) -> tuple[InputRef, ...] | None:
+    """Validate a precomputed ref tuple against the request's path count."""
+    if refs is None:
+        return None
+    materialized = tuple(refs)
+    if len(materialized) != len(paths):
+        raise ConfigError(
+            f"{role}_refs has {len(materialized)} ref(s), but {role} has {len(paths)} path(s)",
+            context={"role": role, "refs": str(len(materialized)), "paths": str(len(paths))},
+        )
+    return materialized
+
+
 def align(
     *,
     query: Path | str | Sequence[Path | str],
@@ -67,6 +85,8 @@ def align(
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
+    query_refs: Sequence[InputRef] | None = None,
+    target_refs: Sequence[InputRef] | None = None,
 ) -> AlignmentResult:
     """Align one query (or read pair) against a target set.
 
@@ -97,6 +117,12 @@ def align(
         resolver: Custom tool resolver.
         executor: Custom subprocess executor.
         store: Custom index store.
+        query_refs: Precomputed input references for ``query`` (for example
+            from :func:`gseek.provenance.input_refs`). Avoids re-hashing the
+            query; the tuple length must match ``query``.
+        target_refs: Precomputed input references for ``target``. Callers
+            that run many queries against one database can hash the target
+            once and pass the same refs for every call.
 
     Returns:
         An :class:`~gseek.AlignmentResult` with normalized records, stats,
@@ -145,6 +171,8 @@ def align(
         store=store,
         manifest_path=Path(manifest) if manifest is not None else None,
         record_manifest=record_manifest,
+        query_refs=_precomputed_refs(query_refs, request.query, role="query"),
+        target_refs=_precomputed_refs(target_refs, request.target, role="target"),
     )
 
 

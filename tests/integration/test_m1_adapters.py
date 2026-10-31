@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import random
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 import gseek
 from gseek.index import IndexStore
+from gseek.provenance import input_ref
+from gseek.types import InputKind
 
 pytestmark = pytest.mark.integration
 
@@ -62,6 +65,40 @@ def test_blast_end_to_end_and_index_reuse(tmp_path: Path) -> None:
     assert second.index.cache_hit
     assert second.manifest is not None
     assert [command.phase for command in second.manifest.commands] == ["align"]
+
+
+@pytest.mark.skipif(
+    shutil.which("makeblastdb") is None or shutil.which("blastn") is None,
+    reason="BLAST+ not installed",
+)
+def test_blast_external_db_with_precomputed_refs(tmp_path: Path) -> None:
+    """Given a consumer-owned BLAST database, When align uses params['db']
+    with index='none' and precomputed refs, Then blastn runs without building
+    a gseek index and returns the same hits."""
+    query, target = _fixture_files(tmp_path)
+    db_prefix = tmp_path / "owned" / "sequences"
+    db_prefix.parent.mkdir()
+    subprocess.run(
+        ["makeblastdb", "-in", str(target), "-dbtype", "nucl", "-out", str(db_prefix)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    query_ref = input_ref(query, kind=InputKind.FASTA, compute_records=False)
+    target_ref = input_ref(target, kind=InputKind.FASTA, compute_records=False)
+    result = gseek.align(
+        backend="blast",
+        query=query,
+        target=target,
+        params={"db": str(db_prefix)},
+        index="none",
+        query_refs=(query_ref,),
+        target_refs=(target_ref,),
+    )
+    assert result.records
+    assert result.index is None
+    assert result.inputs == (query_ref,)
+    assert result.targets == (target_ref,)
 
 
 @pytest.mark.skipif(shutil.which("minimap2") is None, reason="minimap2 not installed")

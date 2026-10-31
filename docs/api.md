@@ -92,6 +92,8 @@ gseek.align(
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
+    query_refs: Sequence[InputRef] | None = None,
+    target_refs: Sequence[InputRef] | None = None,
 ) -> AlignmentResult
 ```
 
@@ -114,6 +116,7 @@ gseek.align(
 | `manifest` | write a `gseek.run/1` manifest |
 | `record_manifest` | `False` skips manifest/result hashing for low-latency consumers |
 | `resolver` / `executor` / `store` | inject custom infrastructure |
+| `query_refs` / `target_refs` | precomputed `InputRef` tuples (from `gseek.provenance.input_refs`) that skip re-hashing; lengths must match the path arguments. Useful when running many queries against one target. |
 
 If `backend` and `adapter` are both omitted, gseek filters registered adapters
 by input/output/paired capabilities. Exactly one candidate must remain; zero or

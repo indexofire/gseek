@@ -9,6 +9,7 @@ from gseek.api import align, backends, distance, find, verify
 from gseek.capabilities import BackendSpec, Capabilities, ToolRequirement
 from gseek.errors import ConfigError
 from gseek.index import IndexStore
+from gseek.provenance import input_ref
 from gseek.registry import _reset_for_tests, register_adapter
 from gseek.types import IndexScope, InputKind, OutputKind
 
@@ -49,6 +50,38 @@ def test_align_api_with_registered_backend(fasta_pair, tmp_path: Path) -> None:
         store=IndexStore(tmp_path / "cache"),
     )
     assert auto.backend == "fake"
+
+
+def test_align_api_accepts_precomputed_input_refs(fasta_pair, tmp_path: Path) -> None:
+    """Given refs already hashed by the consumer, When align runs, Then the
+    result reuses them instead of re-scanning the target/query files. This is
+    the API hook for callers that run many queries against one database."""
+    query, target = fasta_pair
+    query_ref = input_ref(query, kind=InputKind.FASTA, compute_records=False)
+    target_ref = input_ref(target, kind=InputKind.FASTA, compute_records=False)
+    result = align(
+        query=query,
+        target=target,
+        adapter=FakeAdapter(),
+        store=IndexStore(tmp_path / "cache"),
+        query_refs=(query_ref,),
+        target_refs=(target_ref,),
+    )
+    assert result.inputs == (query_ref,)
+    assert result.targets == (target_ref,)
+
+
+def test_align_api_rejects_ref_count_mismatch(fasta_pair) -> None:
+    """Given a ref tuple that does not match the request's path count, When
+    align runs, Then fail before probing or indexing."""
+    query, target = fasta_pair
+    with pytest.raises(ConfigError, match="target_refs"):
+        align(
+            query=query,
+            target=target,
+            adapter=FakeAdapter(),
+            target_refs=(),
+        )
 
 
 def test_align_api_rejects_backend_and_adapter(fasta_pair) -> None:

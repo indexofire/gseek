@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `gseek.align(..., query_refs=..., target_refs=...)` accepts precomputed
+  `InputRef` tuples, so consumers that run many queries against one target
+  hash the database once instead of on every call. The public API now exposes
+  the runner's precomputed-ref hook.
+- BLAST `params={"db": "<prefix>"}` consumes a consumer-owned BLAST database
+  with `index="none"`, skipping gseek's index build/cache and running blastn
+  directly against the existing `-db` prefix. Passing both `db` and a gseek
+  index is a typed `UnsupportedFeatureError`.
+
 ### Changed
 - Docs site: top-tab navigation with page content on the left and the
   right-hand TOC, matching gmlst/gside; Getting Started, Usage, and Reference
