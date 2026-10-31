@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -228,6 +229,79 @@ def test_alignment_result_order_is_total_for_tied_sort_keys() -> None:
     assert [record.identity for record in forward.records] == [
         record.identity for record in backward.records
     ]
+
+
+def test_alignment_result_does_not_serialize_unique_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Given records with distinct cheap keys, When AlignmentResult sorts,
+    Then it must not build a canonical JSON payload for every row."""
+    first = _record(query_id="q1")
+    second = _record(query_id="q2")
+
+    def fail(_record: AlignmentRecord) -> str:
+        raise AssertionError("unique sort keys should not serialize canonical JSON")
+
+    monkeypatch.setattr(AlignmentRecord, "canonical_payload", fail)
+    stats = build_alignment_stats((first, second), query_count=2, target_count=1, runtime_s=0)
+    result = AlignmentResult(
+        backend="fake",
+        records=(second, first),
+        inputs=(),
+        targets=(),
+        params={},
+        stats=stats,
+    )
+    assert [record.query_id for record in result.records] == ["q1", "q2"]
+
+
+def test_alignment_result_can_keep_parser_order() -> None:
+    """Given sort_records=False, When the result is built, Then parser order
+    is preserved for consumers that re-sort or aggregate the rows."""
+    low = _record(identity=80.0)
+    high = _record(identity=90.0)
+    stats = build_alignment_stats((low, high), query_count=1, target_count=1, runtime_s=0)
+    result = AlignmentResult(
+        backend="fake",
+        records=(high, low),
+        inputs=(),
+        targets=(),
+        params={},
+        stats=stats,
+        sort_records=False,
+    )
+    assert [record.identity for record in result.records] == [90.0, 80.0]
+
+
+def test_record_replace_invalidates_the_canonical_payload() -> None:
+    """Given a cached payload, When dataclasses.replace changes the query id,
+    Then the cache must not describe the old record."""
+    record = AlignmentRecord(query_id="old", target_id="t", identity=99.0)
+    assert '"query_id":"old"' in record.canonical_payload()
+    updated = replace(record, query_id="new")
+    assert '"query_id":"new"' in updated.canonical_payload()
+    assert '"query_id":"old"' not in updated.canonical_payload()
+
+
+def test_alignment_result_matches_full_stable_key_order() -> None:
+    """The lazy canonical sorter must be byte-for-byte equivalent to sorting
+    by the full stable key, including equal cheap-key groups."""
+    records = (
+        _record(query_id="q2", target_id="t1", identity=80.0),
+        _record(query_id="q1", target_id="t2", identity=90.0),
+        _record(query_id="q1", target_id="t2", identity=95.0),
+        _record(query_id="q1", target_id="t1", identity=99.0),
+        _record(query_id="q1", target_id="t1", identity=99.0),
+    )
+    expected = tuple(sorted(records, key=AlignmentRecord.stable_key))
+    stats = build_alignment_stats(records, query_count=2, target_count=2, runtime_s=0)
+    result = AlignmentResult(
+        backend="fake",
+        records=records,
+        inputs=(),
+        targets=(),
+        params={},
+        stats=stats,
+    )
+    assert result.records == expected
 
 
 def test_distance_result_order_is_total_for_tied_keys() -> None:

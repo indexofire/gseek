@@ -6,7 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-10-31
+
 ### Added
+- `gseek.iter_align(...)` yields normalized alignment records as the
+  adapter parses them, without materializing an `AlignmentResult`, stats, or
+  manifest. Closing the iterator releases the child process/workspace; this is
+  the low-memory path for large PAF/BLAST result sets. It does not hash query
+  files and hashes targets only when a content-addressed index needs a key;
+  `prepare_refs=True` restores eager ref preparation for custom adapters.
+- `gseek.align_many(queries=[...], target=...)` merges single-end FASTA query
+  files into one backend invocation and restores the original query ids. This
+  amortizes target hashing, index lookup/loading, workspace setup, and process
+  startup across many small queries. It intentionally does not write a
+  manifest because the merged query file is temporary. `annotate_batch=True`
+  tags every record with its input `batch_index` for per-file consumers.
+  `query_refs` supplies precomputed input refs; `compute_inputs=False` skips
+  query-file hashing entirely; `sort_records=False` keeps parser order for
+  consumers that immediately re-sort or aggregate.
 - `gseek.align(..., query_refs=..., target_refs=...)` accepts precomputed
   `InputRef` tuples, so consumers that run many queries against one target
   hash the database once instead of on every call. The public API now exposes
@@ -17,6 +34,12 @@ All notable changes to this project are documented here. The format follows
   index is a typed `UnsupportedFeatureError`.
 
 ### Changed
+- `AlignmentResult`/`DistanceResult` canonical ordering now sorts by the cheap
+  structural key first and serializes canonical JSON only for tied rows. A
+  100k-record result no longer builds a payload string per record, and
+  `AlignmentResult(sort_records=False)` and `align(..., sort_records=False)`
+  give consumers a parser-order opt-out. `iter_align` also skips query hashing
+  and hashes the target only when a content-addressed index needs its key.
 - Docs site: top-tab navigation with page content on the left and the
   right-hand TOC, matching gmlst/gside; Getting Started, Usage, and Reference
   now have bilingual landing pages that link their child pages. Chinese tab
@@ -29,6 +52,10 @@ All notable changes to this project are documented here. The format follows
   the Graphviz sources in `dev/diagrams/` instead of ASCII art.
 
 ### Fixed
+- `AlignmentRecord`/`DistanceRecord` canonical payload caches are now
+  `init=False`, so `dataclasses.replace()` (used by `align_many` to restore
+  query ids and add `batch_index`) cannot retain a payload describing the old
+  fields in `stable_key()`/`result_hash()`.
 - CLI: removed the redundant ``version`` subcommand (``--version``/``-V``
   is the only way to print the version).
 - CLI: ``backends``, ``doctor``, and ``index list`` render bordered Unicode

@@ -101,6 +101,27 @@ def test_blast_external_db_with_precomputed_refs(tmp_path: Path) -> None:
     assert result.targets == (target_ref,)
 
 
+@pytest.mark.skipif(
+    shutil.which("blastn") is None or shutil.which("makeblastdb") is None,
+    reason="BLAST+ not installed",
+)
+def test_align_many_runs_one_blast_and_restores_query_ids(tmp_path: Path) -> None:
+    """Given two FASTA queries, When align_many runs against one target, Then
+    both query ids come back unchanged in one batched alignment result."""
+    query, target = _fixture_files(tmp_path)
+    second = tmp_path / "query2.fa"
+    second.write_text(
+        ">contig2\n" + query.read_text().splitlines()[1][:300] + "\n", encoding="utf-8"
+    )
+    result = gseek.align_many(
+        backend="blast",
+        queries=[query, second],
+        target=target,
+    )
+    assert {record.query_id for record in result.records} == {"contig1", "contig2"}
+    assert [Path(ref.path).name for ref in result.inputs] == ["query.fa", "query2.fa"]
+
+
 @pytest.mark.skipif(shutil.which("minimap2") is None, reason="minimap2 not installed")
 def test_minimap2_end_to_end_and_index_reuse(tmp_path: Path) -> None:
     query, target = _fixture_files(tmp_path)

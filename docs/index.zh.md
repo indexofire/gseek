@@ -75,7 +75,7 @@ manifest。纯 Python 实现，零运行时依赖。
 ## 安装
 
 ```bash
-pip install gseek==0.10.2
+pip install gseek==0.10.3
 gseek --version
 gseek doctor
 gseek backends --json

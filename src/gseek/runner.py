@@ -5,7 +5,7 @@ from __future__ import annotations
 import platform
 import shutil
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -497,12 +497,15 @@ def run_alignment(
     record_manifest: bool = True,
     query_refs: tuple[InputRef, ...] | None = None,
     target_refs: tuple[InputRef, ...] | None = None,
+    sort_records: bool = True,
 ) -> AlignmentResult:
     """Run one alignment request and return normalized records plus provenance.
 
     ``query_refs``/``target_refs`` accept precomputed input references (from
     :func:`gseek.provenance.input_refs`) so callers that already hashed the
     files — replay, verify flows — do not pay the full-file scan again.
+    ``sort_records=False`` keeps parser order for consumers that immediately
+    re-sort or aggregate the rows.
     """
     started = time.monotonic()
     # Config errors fail fast: before any probe, index build, or command runs.
@@ -660,6 +663,7 @@ def run_alignment(
             stats=stats,
             index=index,
             manifest=manifest,
+            sort_records=sort_records,
         )
         if destination is not None:
             assert manifest is not None
@@ -697,6 +701,147 @@ def run_alignment(
             if destination is not None:
                 write_manifest(destination, failed_manifest)
         raise
+    finally:
+        workspace.cleanup()
+
+
+def _index_will_run(spec: BackendSpec, request: AlignRequest, store: IndexStore) -> bool:
+    """Whether the request needs a content-addressed target index key."""
+    return (
+        store.enabled
+        and spec.capabilities.index_scope.value != "none"
+        and request.index_policy is not IndexPolicy.NONE
+    )
+
+
+def iter_alignment(
+    request: AlignRequest,
+    *,
+    backend: str | None = None,
+    adapter: AlignmentAdapter | None = None,
+    resolver: ToolResolver | None = None,
+    executor: Executor | None = None,
+    store: IndexStore | None = None,
+    query_refs: tuple[InputRef, ...] | None = None,
+    target_refs: tuple[InputRef, ...] | None = None,
+    prepare_refs: bool = False,
+) -> Iterator[AlignmentRecord]:
+    """Yield normalized alignment records as they are parsed.
+
+    This is the low-memory sibling of :func:`run_alignment`: no
+    ``AlignmentResult``, stats, or manifest is built, and records are
+    validated one at a time. The workspace and any streamed child are closed
+    when the iterator is exhausted or closed early. Callers that need
+    provenance should use :func:`run_alignment` instead.
+
+    ``prepare_refs=False`` (the default) avoids hashing the query entirely and
+    hashes the target only when a content-addressed index needs its key. An
+    adapter that consumes ``PlanContext.query_refs``/``target_refs`` should
+    opt in with ``prepare_refs=True`` or pass explicit refs.
+    """
+    selected = resolve_adapter(
+        backend=backend,
+        adapter=adapter,
+        request=request,
+        output_kind=OutputKind.ALIGNMENT,
+    )
+    if not isinstance(selected, AlignmentAdapter):
+        raise UnsupportedFeatureError("selected adapter does not implement alignment")
+    align_adapter: AlignmentAdapter = selected
+    spec = align_adapter.spec
+
+    resolver = resolver or _default_resolver()
+    executor = executor or Executor()
+    store = store or IndexStore()
+    probe = align_adapter.probe(resolver, strict=True, include_optional=False)
+    tools = probe.tools
+    executor = executor.with_tool_paths(
+        {tool.name: tool.path for tool in tools if tool.path is not None}
+    )
+
+    if query_refs is None:
+        query_refs = _prepare_queries(request, compute_records=False) if prepare_refs else ()
+    if target_refs is None:
+        if prepare_refs or _index_will_run(spec, request, store):
+            target_files, target_refs = _prepare_targets(request, compute_records=False)
+        else:
+            target_files = expand_fasta_paths(request.target)
+            target_refs = ()
+    else:
+        target_files = tuple(Path(ref.path) for ref in target_refs)
+    effective_request = AlignRequest(
+        query=request.query,
+        target=target_files,
+        query_kind=request.query_kind,
+        paired=request.paired,
+        params=request.params,
+        threads=request.threads,
+        timeout_s=request.timeout_s,
+        index_policy=request.index_policy,
+        target_filter=request.target_filter,
+        work_dir=request.work_dir,
+        keep_work=request.keep_work,
+    )
+    bindings = _validate_tools_hook(align_adapter, effective_request, probe, resolver)
+    if bindings:
+        executor = executor.with_tool_paths(bindings)
+
+    index, _index_commands = _ensure_index(
+        adapter=align_adapter,
+        request=effective_request,
+        target_refs=target_refs,
+        tools=tools,
+        probe=probe,
+        executor=executor,
+        store=store,
+        policy=request.index_policy,
+    )
+    if index is not None:
+        store.mark_in_use(spec.name, index.key)
+
+    workspace = create_workspace(
+        prefix=f"gseek-{spec.name}-",
+        parent=request.work_dir,
+        keep=request.keep_work,
+    )
+    try:
+        index_dir = store.path_for(spec.name, index.key) if index is not None else None
+        ctx = PlanContext(
+            workspace=workspace.root,
+            index_dir=index_dir,
+            threads=request.threads,
+            query_refs=query_refs,
+            target_refs=target_refs,
+        )
+        plan = align_adapter.plan_align(effective_request, index, ctx)
+        parse_ctx = ParseContext(
+            request=effective_request,
+            plan=plan,
+            workspace=workspace.root,
+            index=index,
+            tools=tuple(tool.to_tool_ref() for tool in tools),
+        )
+
+        def checked(records: Iterator[object]) -> Iterator[AlignmentRecord]:
+            for record in records:
+                if not isinstance(record, AlignmentRecord):
+                    raise ParseError(
+                        f"alignment adapter {spec.name!r} returned a non-AlignmentRecord value",
+                        context={"backend": spec.name},
+                    )
+                yield record
+
+        if plan.stream:
+            if not plan.commands:
+                raise ConfigError("streaming alignment plan has no commands")
+            _run_commands(plan.commands[:-1], executor, phase="align")
+            last = plan.commands[-1]
+            with executor.stream(last) as process:
+                yield from checked(align_adapter.parse_align(parse_ctx, process.iter_lines()))
+                process.wait()
+        else:
+            _run_commands(plan.commands, executor, phase="align")
+            yield from checked(align_adapter.parse_align(parse_ctx))
     finally:
         workspace.cleanup()
 

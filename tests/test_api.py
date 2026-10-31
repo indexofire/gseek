@@ -52,6 +52,20 @@ def test_align_api_with_registered_backend(fasta_pair, tmp_path: Path) -> None:
     assert auto.backend == "fake"
 
 
+def test_align_api_can_skip_canonical_sort(fasta_pair, tmp_path: Path) -> None:
+    """Given sort_records=False, When align is called, Then the result keeps
+    parser order and records the opt-out."""
+    query, target = fasta_pair
+    result = align(
+        query=query,
+        target=target,
+        adapter=FakeAdapter(),
+        store=IndexStore(tmp_path / "cache"),
+        sort_records=False,
+    )
+    assert result.sort_records is False
+
+
 def test_align_api_accepts_precomputed_input_refs(fasta_pair, tmp_path: Path) -> None:
     """Given refs already hashed by the consumer, When align runs, Then the
     result reuses them instead of re-scanning the target/query files. This is

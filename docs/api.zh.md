@@ -2,7 +2,7 @@
 
 [English](https://indexofire.github.io/gseek/api/) | **简体中文**
 
-> 版本：0.10.2<br>
+> 版本：0.10.3<br>
 > Python：>=3.12<br>
 > 源码基准：`src/gseek/`<br>
 > 新用户请先读 [Quickstart](quickstart.zh.md)。
@@ -27,7 +27,7 @@ M0 基座与 M1–M4 适配器已实现。
 ```python
 import gseek
 
-gseek.__version__        # "0.10.2"
+gseek.__version__        # "0.10.3"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -89,6 +89,9 @@ gseek.align(
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
+    query_refs: Sequence[InputRef] | None = None,
+    target_refs: Sequence[InputRef] | None = None,
+    sort_records: bool = True,
 ) -> AlignmentResult
 ```
 
@@ -111,6 +114,8 @@ gseek.align(
 | `manifest` | 写出 `gseek.run/1` manifest |
 | `record_manifest` | 为 `False` 时跳过 manifest/结果哈希，适合低延迟调用方 |
 | `resolver` / `executor` / `store` | 注入自定义基础设施 |
+| `query_refs` / `target_refs` | 预计算的 `InputRef` 元组（来自 `gseek.provenance.input_refs`），跳过重复哈希；长度必须与路径参数一致。适合一个 target 跑多个 query。 |
+| `sort_records` | `False` 保留 parser 顺序，适合立刻自行排序/聚合的消费者；默认 canonical 排序不变。 |
 
 如果 `backend` 与 `adapter` 都省略，gseek 会按输入/输出/paired 能力筛选已注册
 适配器。必须恰好剩一个候选；零个或多个候选都会抛 `ConfigError`，而不是猜测。
@@ -131,7 +136,52 @@ gseek.align(
 | `sourmash` | 每次调用一个 query 文件；`containment` 切换语义 |
 | `skani` | 仅 FASTA；sketch 数据库；返回 ANI + aligned fraction |
 
-### 2.2 `gseek.distance`
+### 2.2 `gseek.iter_align`
+
+```python
+for record in gseek.iter_align(
+    query=query,
+    target=target,
+    backend="blast",
+    params={"db": "/path/to/owned/sequences"},
+    index="none",
+):
+    process(record)
+```
+
+`iter_align` 是 `align` 的低内存兄弟：适配器解析出一条 `AlignmentRecord` 就立即
+yield，不构建 `AlignmentResult`、stats 或 manifest。它接受相同的共享输入
+（包括 `query_refs` / `target_refs`），但没有 `manifest` / `record_manifest` 参数。
+提前关闭迭代器会释放子进程和 workspace。
+
+默认情况下 `iter_align` 完全不对 query 做哈希，target 也只在 content-addressed
+索引确实需要 key 时才哈希。自定义适配器如果要读取 `PlanContext.query_refs` /
+`target_refs`，请显式传 `prepare_refs=True`。
+
+### 2.3 `gseek.align_many`
+
+```python
+result = gseek.align_many(
+    queries=["sample1.fa", "sample2.fa", "sample3.fa"],
+    target=target,
+    backend="blast",
+    params={"db": "/path/to/owned/sequences"},
+    index="none",
+)
+```
+
+`align_many` 把多个单端 **FASTA** query 合并成一个临时 query，只运行一次后端，
+再把每条记录的 query id 恢复为原始值。它摊销 target 哈希、索引加载、workspace
+初始化和进程启动成本。返回普通的 `AlignmentResult`，但因为合并 query 是临时文件，
+不写 manifest。传 `annotate_batch=True` 会给每条记录加 `batch_index` 标签，消费者
+可据此把合并结果拆回输入文件。
+
+逐文件消费者可以传 `compute_inputs=False` 跳过原始 query 文件的哈希（此时
+`inputs` 为空），或传 `sort_records=False` 在自行排序/聚合时保留 parser 顺序；
+也可以用 `query_refs` 传入预计算的 refs。FASTQ/双端批处理不在该 API 范围内，
+请用逐文件 `align`/`iter_align`。
+
+### 2.4 `gseek.distance`
 
 ```python
 gseek.distance(
@@ -164,7 +214,7 @@ gseek.distance(
 `.sig`/`.zip`、sourmash rocksdb 目录或 skani database 目录。这种情况下 gseek
 跳过 reference 索引，直接对产物做哈希（目录使用确定性 tree hash；拒绝符号链接）。
 
-### 2.3 注册表查询
+### 2.5 注册表查询
 
 ```python
 gseek.backends() -> tuple[BackendSpec, ...]
@@ -181,7 +231,7 @@ gseek.find_backends(...)  # alias
 `BackendSpec.capabilities` 描述 `inputs`、`outputs`、`molecule`、`paired`、
 `index_scope`、`streaming`、`threads`、`presets` 与 `deterministic`。
 
-### 2.4 获取/注册适配器
+### 2.6 获取/注册适配器
 
 ```python
 adapter = gseek.get_backend("minimap2")
@@ -199,7 +249,7 @@ gseek.register_adapter(MyAdapter, replace=True)
 `register_adapter` 接受类或实例；重名会抛 `ConfigError`，除非 `replace=True`。
 插件也可以使用 `gseek.adapters` entry-point 组。
 
-### 2.5 校验 manifest
+### 2.7 校验 manifest
 
 ```python
 issues = gseek.verify("runs/sample.manifest.json")
@@ -209,7 +259,7 @@ for issue in issues:
 
 `verify` 检查记录的文件大小/SHA-256，不会重新探测工具或重跑。
 
-### 2.6 回放
+### 2.8 回放
 
 ```python
 from pathlib import Path
@@ -222,7 +272,7 @@ print(result.matches, result.issues)
 Replay 按 manifest 让适配器重新规划；绝不执行保存的 argv。`check=True` 会比较
 新的结果哈希，并抛出/报告不一致。
 
-### 2.7 消费者切换：`gseek.compat`
+### 2.9 消费者切换：`gseek.compat`
 
 ```python
 from gseek.compat import Engine
@@ -270,8 +320,11 @@ tags
 ```text
 backend, records, inputs, targets, params, stats
 index (IndexRef | None), manifest (RunManifest | None)
-warnings, errors, schema
+warnings, errors, schema, sort_records
 ```
+
+`sort_records=True` 是默认的 canonical 排序；`sort_records=False` 保留 parser
+顺序，适合立刻自行排序/聚合的消费者，不影响独立规范化计算的 `result_hash`。
 
 视图：
 
@@ -507,7 +560,7 @@ Schema 带版本；破坏性变更必须使用新的 schema 字符串。
 
 ## 12. 稳定性与限制
 
-- `0.10.2` 是当前版本；生产环境请固定版本。1.0 之前公共 API 仍可能变化。
+- `0.10.3` 是当前版本；生产环境请固定版本。1.0 之前公共 API 仍可能变化。
 - 迁移期间可通过 `gseek.compat` 保留 legacy 路径。
 - 各工具的后端覆盖不同；见顶部矩阵。
 - Manifest replay 要求相同的适配器/工具版本；环境变化可能合理地改变结果，并会

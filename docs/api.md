@@ -2,9 +2,9 @@
 
 **English** | [简体中文](https://indexofire.github.io/gseek/zh/api/)
 
-> Version: 0.10.2  
-> Python: >=3.12  
-> Source: `src/gseek/`  
+> Version: 0.10.3<br>
+> Python: >=3.12<br>
+> Source: `src/gseek/`<br>
 > New users: read [Quickstart](quickstart.md) first.
 
 ## 0. Status
@@ -27,7 +27,7 @@ All symbols below are importable from the top-level package:
 ```python
 import gseek
 
-gseek.__version__        # "0.10.2"
+gseek.__version__        # "0.10.3"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -94,6 +94,7 @@ gseek.align(
     store: IndexStore | None = None,
     query_refs: Sequence[InputRef] | None = None,
     target_refs: Sequence[InputRef] | None = None,
+    sort_records: bool = True,
 ) -> AlignmentResult
 ```
 
@@ -117,6 +118,7 @@ gseek.align(
 | `record_manifest` | `False` skips manifest/result hashing for low-latency consumers |
 | `resolver` / `executor` / `store` | inject custom infrastructure |
 | `query_refs` / `target_refs` | precomputed `InputRef` tuples (from `gseek.provenance.input_refs`) that skip re-hashing; lengths must match the path arguments. Useful when running many queries against one target. |
+| `sort_records` | `False` keeps parser order for consumers that re-sort/aggregate immediately; default canonical ordering is unchanged. |
 
 If `backend` and `adapter` are both omitted, gseek filters registered adapters
 by input/output/paired capabilities. Exactly one candidate must remain; zero or
@@ -138,7 +140,57 @@ Backend notes:
 | `sourmash` | one query file per call; `containment` toggles semantics |
 | `skani` | FASTA only; sketch database; returns ANI + aligned fraction |
 
-### 2.2 `gseek.distance`
+### 2.2 `gseek.iter_align`
+
+```python
+for record in gseek.iter_align(
+    query=query,
+    target=target,
+    backend="blast",
+    params={"db": "/path/to/owned/sequences"},
+    index="none",
+):
+    process(record)
+```
+
+`iter_align` is the low-memory sibling of `align`: it yields
+`AlignmentRecord` objects as the adapter parses them and does **not** build an
+`AlignmentResult`, stats, or a manifest. It accepts the same shared inputs
+(`query_refs` / `target_refs` included) but has no `manifest` /
+`record_manifest` arguments. Close the iterator early to release the child
+process and workspace.
+
+By default `iter_align` does not hash the query at all and hashes the target
+only when a content-addressed index needs its key. Pass `prepare_refs=True`
+when a custom adapter consumes `PlanContext.query_refs` / `target_refs`.
+
+### 2.3 `gseek.align_many`
+
+```python
+result = gseek.align_many(
+    queries=["sample1.fa", "sample2.fa", "sample3.fa"],
+    target=target,
+    backend="blast",
+    params={"db": "/path/to/owned/sequences"},
+    index="none",
+)
+```
+
+`align_many` merges several single-end **FASTA** queries into one temporary
+query, runs the backend once, and restores each record's original query id.
+This amortizes target hashing, index loading, workspace setup, and process
+startup across many small queries. It returns a normal `AlignmentResult`, but
+without a manifest because the merged query file is temporary. Pass
+`annotate_batch=True` to add a `batch_index` tag to each record, so a consumer
+can split the merged result back into its input files.
+
+Per-file consumers can pass `compute_inputs=False` to skip hashing the
+original query files (the result then has empty `inputs`), and
+`sort_records=False` to keep parser order when they immediately re-sort or
+aggregate rows. `query_refs` can supply precomputed input refs instead.
+FASTQ/paired batching is not covered; use per-file `align`/`iter_align` there.
+
+### 2.4 `gseek.distance`
 
 ```python
 gseek.distance(
@@ -172,7 +224,7 @@ than FASTA: `.msh`, `.sig`/`.zip`, a sourmash rocksdb directory, or a skani
 database directory. In that case gseek skips reference indexing and hashes the
 artifact (directories use deterministic tree hashing; symlinks are rejected).
 
-### 2.3 Registry queries
+### 2.5 Registry queries
 
 ```python
 gseek.backends() -> tuple[BackendSpec, ...]
@@ -189,7 +241,7 @@ gseek.find_backends(...)  # alias
 `BackendSpec.capabilities` describes `inputs`, `outputs`, `molecule`, `paired`,
 `index_scope`, `streaming`, `threads`, `presets`, and `deterministic`.
 
-### 2.4 Get/register an adapter
+### 2.6 Get/register an adapter
 
 ```python
 adapter = gseek.get_backend("minimap2")
@@ -208,7 +260,7 @@ gseek.register_adapter(MyAdapter, replace=True)
 `ConfigError` unless `replace=True`. Plugins may also use the
 `gseek.adapters` entry-point group.
 
-### 2.5 Verify a manifest
+### 2.7 Verify a manifest
 
 ```python
 issues = gseek.verify("runs/sample.manifest.json")
@@ -218,7 +270,7 @@ for issue in issues:
 
 `verify` checks recorded file sizes/SHA-256. It does not re-probe tools or rerun.
 
-### 2.6 Replay
+### 2.8 Replay
 
 ```python
 from pathlib import Path
@@ -231,7 +283,7 @@ print(result.matches, result.issues)
 Replay re-plans through the adapter from the manifest; it never executes stored
 argv. `check=True` compares the new result hash and raises/reports a mismatch.
 
-### 2.7 Consumer switch: `gseek.compat`
+### 2.9 Consumer switch: `gseek.compat`
 
 ```python
 from gseek.compat import Engine
@@ -279,8 +331,12 @@ tags
 ```text
 backend, records, inputs, targets, params, stats
 index (IndexRef | None), manifest (RunManifest | None)
-warnings, errors, schema
+warnings, errors, schema, sort_records
 ```
+
+`sort_records=True` is the default canonical ordering. `sort_records=False`
+keeps parser order for consumers that re-sort or aggregate immediately; it
+does not change `result_hash`, which canonicalizes independently.
 
 Views:
 
@@ -521,8 +577,8 @@ Schemas are versioned; breaking changes require a new schema string.
 
 ## 12. Stability and limits
 
-- `0.10.2` is the current release; pin it in production. Public API may still change before 1.0.
-- Pin `gseek==0.10.2` in production and keep a legacy path via
+- `0.10.3` is the current release; pin it in production. Public API may still change before 1.0.
+- Pin `gseek==0.10.3` in production and keep a legacy path via
   `gseek.compat` while migrating.
 - Backend coverage differs by tool; see the matrix at the top.
 - Manifest replay requires the same adapter/tool versions; environment changes

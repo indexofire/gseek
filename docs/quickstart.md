@@ -19,13 +19,13 @@ conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 
 ## 2. Install
 
-PyPI release 0.10.2, a locally built wheel, or a source checkout:
+PyPI release 0.10.3, a locally built wheel, or a source checkout:
 
 ```bash
-pip install gseek==0.10.2
+pip install gseek==0.10.3
 
 # or install the locally built wheel
-uv pip install dist/gseek-0.10.2-py3-none-any.whl
+uv pip install dist/gseek-0.10.3-py3-none-any.whl
 
 # or run from a source checkout
 pip install -e ".[dev]"
@@ -35,7 +35,7 @@ export PYTHONPATH=/path/to/gseek/src
 Verify:
 
 ```bash
-gseek --version          # gseek 0.10.2
+gseek --version          # gseek 0.10.3
 gseek backends           # capability matrix, 8 backends
 gseek doctor             # external tool probe; exits 1 if a tool is missing
 ```
@@ -130,7 +130,7 @@ gseek distance \
 ```
 
 `sourmash` and `skani` follow the same pattern; see the
-[API reference](api.md#22-gseekdistance) and [CLI reference](cli.md#distance).
+[API reference](api.md#24-gseekdistance) and [CLI reference](cli.md#distance).
 
 ## 6. Verify and replay
 

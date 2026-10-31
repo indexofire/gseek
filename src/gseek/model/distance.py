@@ -40,7 +40,8 @@ class DistanceRecord:
     # See AlignmentRecord.tags: provenance participates in equality, not hash.
     tags: Mapping[str, str] = field(default_factory=dict, compare=True, hash=False)
     # Cached canonical JSON payload (see AlignmentRecord.canonical_payload).
-    _payload_cache: str = field(default="", compare=False, repr=False)
+    # init=False keeps dataclasses.replace() from carrying a stale payload.
+    _payload_cache: str = field(default="", compare=False, repr=False, init=False)
 
     def __post_init__(self) -> None:
         if not self.query_id or not self.reference_id:
@@ -164,6 +165,31 @@ class DistanceStats:
             ) from exc
 
 
+def _canonical_records(
+    records: tuple[DistanceRecord, ...],
+) -> tuple[DistanceRecord, ...]:
+    """Distance analogue of ``AlignmentResult``'s lazy canonical ordering."""
+    if len(records) < 2:
+        return records
+    keys = [record.sort_key for record in records]
+    ordered = list(records)
+    if any(left > right for left, right in itertools.pairwise(keys)):
+        order = sorted(range(len(records)), key=keys.__getitem__)
+        ordered = [records[index] for index in order]
+        keys = [keys[index] for index in order]
+    start = 0
+    while start < len(ordered):
+        end = start + 1
+        while end < len(ordered) and keys[end] == keys[start]:
+            end += 1
+        if end - start > 1:
+            ordered[start:end] = sorted(
+                ordered[start:end], key=lambda record: record.canonical_payload()
+            )
+        start = end
+    return tuple(ordered)
+
+
 @dataclass(frozen=True, slots=True)
 class DistanceResult:
     backend: str
@@ -181,15 +207,7 @@ class DistanceResult:
     def __post_init__(self) -> None:
         if self.schema != DISTANCE_SCHEMA:
             raise InputError(f"unsupported distance schema: {self.schema!r}")
-        # See AlignmentResult: one key per record, skip the sort when the
-        # input is already canonical.
-        keys = [record.stable_key() for record in self.records]
-        if any(left > right for left, right in itertools.pairwise(keys)):
-            ordered = sorted(zip(keys, self.records, strict=True), key=lambda pair: pair[0])
-            records = tuple(record for _, record in ordered)
-        else:
-            records = tuple(self.records)
-        object.__setattr__(self, "records", records)
+        object.__setattr__(self, "records", _canonical_records(tuple(self.records)))
         object.__setattr__(self, "params", dict(self.params))
 
     def __iter__(self) -> Iterator[DistanceRecord]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 from collections import defaultdict
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from gseek.errors import InputError, ParseError
@@ -128,9 +128,47 @@ def build_alignment_stats(
     )
 
 
+def _canonical_records(
+    records: tuple[AlignmentRecord, ...],
+) -> tuple[AlignmentRecord, ...]:
+    """Order records by the full stable key, serializing only tied rows.
+
+    ``stable_key()`` appends a canonical JSON payload so equal cheap sort keys
+    still have a deterministic order. Building that payload for every row is
+    expensive and unnecessary: equal cheap keys are rare in real output. Sort
+    by ``sort_key()`` first, then serialize only within equal-key runs.
+    """
+    if len(records) < 2:
+        return records
+    keys = [record.sort_key() for record in records]
+    ordered = list(records)
+    if any(left > right for left, right in itertools.pairwise(keys)):
+        order = sorted(range(len(records)), key=keys.__getitem__)
+        ordered = [records[index] for index in order]
+        keys = [keys[index] for index in order]
+    # Stable sort by payload within each equal-cheap-key run. This is exactly
+    # the lexicographic order of (sort_key, canonical_payload).
+    start = 0
+    while start < len(ordered):
+        end = start + 1
+        while end < len(ordered) and keys[end] == keys[start]:
+            end += 1
+        if end - start > 1:
+            ordered[start:end] = sorted(
+                ordered[start:end], key=lambda record: record.canonical_payload()
+            )
+        start = end
+    return tuple(ordered)
+
+
 @dataclass(frozen=True, slots=True)
 class AlignmentResult:
-    """A normalized alignment result plus provenance and aggregate views."""
+    """A normalized alignment result plus provenance and aggregate views.
+
+    ``sort_records=True`` (the default) applies gseek's canonical ordering.
+    Consumers that immediately re-sort or aggregate rows — such as gapit's
+    batch path — may pass ``sort_records=False`` and keep parser order.
+    """
 
     backend: str
     records: tuple[AlignmentRecord, ...]
@@ -143,18 +181,14 @@ class AlignmentResult:
     warnings: tuple[Issue, ...] = ()
     errors: tuple[Issue, ...] = ()
     schema: str = ALIGNMENT_SCHEMA
+    sort_records: bool = field(default=True, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.schema != ALIGNMENT_SCHEMA:
             raise InputError(f"unsupported alignment schema: {self.schema!r}")
-        # Compute each key once; skip the O(n log n) sort when the input is
-        # already canonical (replay results, consumer re-wrapping).
-        keys = [record.stable_key() for record in self.records]
-        if any(left > right for left, right in itertools.pairwise(keys)):
-            ordered = sorted(zip(keys, self.records, strict=True), key=lambda pair: pair[0])
-            records = tuple(record for _, record in ordered)
-        else:
-            records = tuple(self.records)
+        records = (
+            _canonical_records(tuple(self.records)) if self.sort_records else tuple(self.records)
+        )
         object.__setattr__(self, "records", records)
         object.__setattr__(self, "params", dict(self.params))
 

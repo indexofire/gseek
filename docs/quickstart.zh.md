@@ -19,13 +19,13 @@ conda install -c bioconda blast minimap2 mummer4 kma bwa mash sourmash skani
 
 ## 2. 安装
 
-可以选择 PyPI 发布的 0.10.2、本地构建的 wheel，或源码开发模式：
+可以选择 PyPI 发布的 0.10.3、本地构建的 wheel，或源码开发模式：
 
 ```bash
-pip install gseek==0.10.2
+pip install gseek==0.10.3
 
 # 或安装本地构建的 wheel
-uv pip install dist/gseek-0.10.2-py3-none-any.whl
+uv pip install dist/gseek-0.10.3-py3-none-any.whl
 
 # 或从源码运行
 pip install -e ".[dev]"
@@ -35,7 +35,7 @@ export PYTHONPATH=/path/to/gseek/src
 确认安装：
 
 ```bash
-gseek --version          # gseek 0.10.2
+gseek --version          # gseek 0.10.3
 gseek backends           # 能力矩阵，8 个后端
 gseek doctor             # 检查外部工具；缺失时返回 1
 ```
@@ -128,7 +128,7 @@ gseek distance \
   --param scaled=1000
 ```
 
-`sourmash` 与 `skani` 的使用方式相同；参见 [API 参考](api.zh.md#22-gseekdistance)
+`sourmash` 与 `skani` 的使用方式相同；参见 [API 参考](api.zh.md#24-gseekdistance)
 与 [CLI 参考](cli.zh.md#distance)。
 
 ## 6. 校验与重放

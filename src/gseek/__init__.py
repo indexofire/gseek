@@ -20,10 +20,12 @@ from gseek.api import (
     find,
     find_backends,
     get_backend,
+    iter_align,
     register_adapter,
     replay,
     verify,
 )
+from gseek.batch import align_many
 from gseek.capabilities import (
     BackendSpec,
     Capabilities,
@@ -172,6 +174,7 @@ __all__ = [
     "UsageError",
     "__version__",
     "align",
+    "align_many",
     "alignment_result_hash",
     "backends",
     "build_alignment_stats",
@@ -185,6 +188,7 @@ __all__ = [
     "find_backends",
     "get_backend",
     "gseek_version",
+    "iter_align",
     "read_manifest",
     "recipe_hash",
     "register_adapter",

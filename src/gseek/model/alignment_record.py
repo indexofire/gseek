@@ -79,8 +79,10 @@ class AlignmentRecord:
     # unhashable), which keeps the eq/hash contract intact.
     tags: Mapping[str, str] = field(default_factory=dict, compare=True, hash=False)
     # Cached canonical JSON payload (lazily built): stable_key ordering and
-    # result hashing serialize each record exactly once. Never compared.
-    _payload_cache: str = field(default="", compare=False, repr=False)
+    # result hashing serialize each record exactly once. Never compared, and
+    # ``init=False`` so dataclasses.replace() cannot copy a payload that still
+    # describes the pre-replacement fields (align_many rewrites query ids).
+    _payload_cache: str = field(default="", compare=False, repr=False, init=False)
 
     def __post_init__(self) -> None:
         if not self.query_id:

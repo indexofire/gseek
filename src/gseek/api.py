@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 
 from gseek.adapter import AlignmentAdapter, AlignRequest, DistanceAdapter, DistanceRequest
@@ -10,7 +10,14 @@ from gseek.capabilities import BackendSpec
 from gseek.errors import ConfigError, InputError
 from gseek.execution import Executor, ToolResolver
 from gseek.index import IndexPolicy, IndexStore
-from gseek.model import AlignmentResult, DistanceResult, InputRef, Issue, RunManifest
+from gseek.model import (
+    AlignmentRecord,
+    AlignmentResult,
+    DistanceResult,
+    InputRef,
+    Issue,
+    RunManifest,
+)
 from gseek.provenance import read_manifest, verify_manifest
 from gseek.registry import (
     backend_specs,
@@ -20,7 +27,7 @@ from gseek.registry import (
 )
 from gseek.replay import ReplayResult
 from gseek.replay import replay as _replay
-from gseek.runner import run_alignment, run_distance
+from gseek.runner import iter_alignment, run_alignment, run_distance
 from gseek.types import InputKind, JsonValue, Molecule, OutputKind
 
 
@@ -64,6 +71,54 @@ def _precomputed_refs(
     return materialized
 
 
+def _align_request(
+    *,
+    query: Path | str | Sequence[Path | str],
+    target: Path | str | Sequence[Path | str],
+    query_kind: InputKind | str | None = None,
+    paired: bool = False,
+    params: Mapping[str, JsonValue] | None = None,
+    preset: str | None = None,
+    threads: int = 1,
+    timeout_s: float | None = None,
+    index: IndexPolicy | str = IndexPolicy.AUTO,
+    target_filter: Iterable[str] | None = None,
+    work_dir: Path | str | None = None,
+    keep_work: bool = False,
+) -> AlignRequest:
+    """Build and validate the shared alignment request for align/iter_align."""
+    merged_params: dict[str, JsonValue] = dict(params or {})
+    if preset is not None:
+        existing = merged_params.get("preset")
+        if existing is not None and str(existing) != str(preset):
+            raise ConfigError(
+                f"preset={preset!r} conflicts with params['preset']={existing!r}",
+                context={"preset": str(preset), "params_preset": str(existing)},
+            )
+        merged_params["preset"] = preset
+    try:
+        policy = IndexPolicy(index)
+    except ValueError as exc:
+        raise ConfigError(
+            f"unknown index policy {index!r}; expected one of "
+            f"{[policy.value for policy in IndexPolicy]}",
+            context={"index": str(index)},
+        ) from exc
+    return AlignRequest(
+        query=_as_paths(query),
+        target=_as_paths(target),
+        query_kind=_coerce_query_kind(query_kind),
+        paired=paired,
+        params=merged_params,
+        threads=threads,
+        timeout_s=timeout_s,
+        index_policy=policy,
+        target_filter=frozenset(target_filter) if target_filter is not None else None,
+        work_dir=Path(work_dir) if work_dir is not None else None,
+        keep_work=keep_work,
+    )
+
+
 def align(
     *,
     query: Path | str | Sequence[Path | str],
@@ -87,6 +142,7 @@ def align(
     store: IndexStore | None = None,
     query_refs: Sequence[InputRef] | None = None,
     target_refs: Sequence[InputRef] | None = None,
+    sort_records: bool = True,
 ) -> AlignmentResult:
     """Align one query (or read pair) against a target set.
 
@@ -123,6 +179,8 @@ def align(
         target_refs: Precomputed input references for ``target``. Callers
             that run many queries against one database can hash the target
             once and pass the same refs for every call.
+        sort_records: Apply the default canonical ordering. Pass ``False``
+            when the consumer immediately re-sorts or aggregates the rows.
 
     Returns:
         An :class:`~gseek.AlignmentResult` with normalized records, stats,
@@ -132,34 +190,18 @@ def align(
         GseekError: Base class for typed failures such as missing tools,
             unsupported capabilities, parse errors, or index failures.
     """
-    merged_params: dict[str, JsonValue] = dict(params or {})
-    if preset is not None:
-        existing = merged_params.get("preset")
-        if existing is not None and str(existing) != str(preset):
-            raise ConfigError(
-                f"preset={preset!r} conflicts with params['preset']={existing!r}",
-                context={"preset": str(preset), "params_preset": str(existing)},
-            )
-        merged_params["preset"] = preset
-    try:
-        policy = IndexPolicy(index)
-    except ValueError as exc:
-        raise ConfigError(
-            f"unknown index policy {index!r}; expected one of "
-            f"{[policy.value for policy in IndexPolicy]}",
-            context={"index": str(index)},
-        ) from exc
-    request = AlignRequest(
-        query=_as_paths(query),
-        target=_as_paths(target),
-        query_kind=_coerce_query_kind(query_kind),
+    request = _align_request(
+        query=query,
+        target=target,
+        query_kind=query_kind,
         paired=paired,
-        params=merged_params,
+        params=params,
+        preset=preset,
         threads=threads,
         timeout_s=timeout_s,
-        index_policy=policy,
-        target_filter=frozenset(target_filter) if target_filter is not None else None,
-        work_dir=Path(work_dir) if work_dir is not None else None,
+        index=index,
+        target_filter=target_filter,
+        work_dir=work_dir,
         keep_work=keep_work,
     )
     return run_alignment(
@@ -173,6 +215,70 @@ def align(
         record_manifest=record_manifest,
         query_refs=_precomputed_refs(query_refs, request.query, role="query"),
         target_refs=_precomputed_refs(target_refs, request.target, role="target"),
+        sort_records=sort_records,
+    )
+
+
+def iter_align(
+    *,
+    query: Path | str | Sequence[Path | str],
+    target: Path | str | Sequence[Path | str],
+    backend: str | None = None,
+    adapter: AlignmentAdapter | None = None,
+    query_kind: InputKind | str | None = None,
+    paired: bool = False,
+    params: Mapping[str, JsonValue] | None = None,
+    preset: str | None = None,
+    threads: int = 1,
+    timeout_s: float | None = None,
+    index: IndexPolicy | str = IndexPolicy.AUTO,
+    target_filter: Iterable[str] | None = None,
+    work_dir: Path | str | None = None,
+    keep_work: bool = False,
+    resolver: ToolResolver | None = None,
+    executor: Executor | None = None,
+    store: IndexStore | None = None,
+    query_refs: Sequence[InputRef] | None = None,
+    target_refs: Sequence[InputRef] | None = None,
+    prepare_refs: bool = False,
+) -> Iterator[AlignmentRecord]:
+    """Yield alignment records as they are parsed (no materialized result).
+
+    This is the low-memory sibling of :func:`align`: it does not build an
+    ``AlignmentResult``, stats, or a manifest, so it has no ``manifest`` /
+    ``record_manifest`` parameters. Close the iterator early to release the
+    child process and workspace.
+
+    Args match :func:`align` for the shared alignment inputs; ``query_refs`` /
+    ``target_refs`` are precomputed :class:`~gseek.model.InputRef` tuples.
+    By default queries are not hashed and the target is hashed only when a
+    content-addressed index needs its key. Pass ``prepare_refs=True`` when a
+    custom adapter consumes ``PlanContext`` refs.
+    """
+    request = _align_request(
+        query=query,
+        target=target,
+        query_kind=query_kind,
+        paired=paired,
+        params=params,
+        preset=preset,
+        threads=threads,
+        timeout_s=timeout_s,
+        index=index,
+        target_filter=target_filter,
+        work_dir=work_dir,
+        keep_work=keep_work,
+    )
+    return iter_alignment(
+        request,
+        backend=backend,
+        adapter=adapter,
+        resolver=resolver,
+        executor=executor,
+        store=store,
+        query_refs=_precomputed_refs(query_refs, request.query, role="query"),
+        target_refs=_precomputed_refs(target_refs, request.target, role="target"),
+        prepare_refs=prepare_refs,
     )
 
 
