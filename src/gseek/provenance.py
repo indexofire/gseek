@@ -27,12 +27,14 @@ from gseek.model import (
     RunManifest,
     ToolRef,
 )
-from gseek.types import RECIPE_SCHEMA, InputKind, JsonValue
+from gseek.types import RECIPE_SCHEMA, InputKind, JsonValue, RunStatus
 from gseek.version import __version__
 
 _CHUNK_SIZE = 1024 * 1024
 # Concurrent file-hash workers (hashlib releases the GIL on big updates).
 _HASH_WORKERS = min(8, (os.cpu_count() or 2))
+_DEFAULT_MAX_MANIFEST_BYTES = 64 * 1024 * 1024
+_DEFAULT_MAX_TREE_ENTRIES = 1_000_000
 
 # Parameters that describe how a job is executed rather than what it computes.
 # They are excluded from recipe_hash but preserved in the manifest.
@@ -67,6 +69,17 @@ def sha256_bytes(data: bytes) -> str:
 
 def sha256_text(text: str) -> str:
     return sha256_bytes(text.encode("utf-8"))
+
+
+def validate_path_text(path: Path) -> str:
+    """Reject paths containing control characters that can forge tool output."""
+    text = str(path)
+    if any(ord(char) < 32 or ord(char) == 127 for char in text):
+        raise InputError(
+            "path contains control characters",
+            context={"path": repr(text)},
+        )
+    return text
 
 
 def sha256_file(path: Path, *, chunk_size: int = _CHUNK_SIZE) -> str:
@@ -122,14 +135,22 @@ def hash_and_count(
     return digest.hexdigest(), headers
 
 
-def _tree_entries(root: Path) -> Iterable[tuple[Path, str, str]]:
+def _tree_entries(root: Path, *, max_entries: int | None = None) -> Iterable[tuple[Path, str, str]]:
     """Yield regular files/directories in deterministic relative-path order.
 
     Symlinks are rejected: following them would make a manifest depend on
     files outside the external reference and complicate reproducibility.
     """
+    entries: list[Path] = []
     try:
-        entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
+        for path in root.rglob("*"):
+            entries.append(path)
+            if max_entries is not None and len(entries) > max_entries:
+                raise InputError(
+                    f"directory tree has too many entries (limit {max_entries})",
+                    context={"path": str(root), "limit": str(max_entries)},
+                )
+        entries.sort(key=lambda path: path.relative_to(root).as_posix())
     except OSError as exc:
         raise InputError(
             f"cannot read directory for hashing: {root}: {exc}", context={"path": str(root)}
@@ -153,17 +174,19 @@ def _tree_entries(root: Path) -> Iterable[tuple[Path, str, str]]:
             )
 
 
-def sha256_tree(path: Path) -> str:
+def sha256_tree(path: Path, *, max_entries: int | None = None) -> str:
     """Hash a directory tree deterministically (relative paths + file bytes).
 
     The tree hash is not a hash of a tar/zip; it is gseek's stable directory
     identity. Entries are sorted by POSIX relative path and include type, path,
     and regular-file content. Symlinks are rejected.
     """
-    return _tree_digest_and_size(path)[0]
+    return _tree_digest_and_size(
+        path, max_entries=_DEFAULT_MAX_TREE_ENTRIES if max_entries is None else max_entries
+    )[0]
 
 
-def directory_size(path: Path) -> int:
+def directory_size(path: Path, *, max_entries: int | None = None) -> int:
     """Total size of regular files in a directory tree (symlinks rejected).
 
     Stat-only: callers that only need a size (external-reference validation)
@@ -173,7 +196,9 @@ def directory_size(path: Path) -> int:
     if not root.is_dir():
         raise InputError(f"directory not found: {path}", context={"path": str(path)})
     total = 0
-    for child, _relative, kind in _tree_entries(root):
+    for child, _relative, kind in _tree_entries(
+        root, max_entries=_DEFAULT_MAX_TREE_ENTRIES if max_entries is None else max_entries
+    ):
         if kind == "F":
             try:
                 total += child.stat().st_size
@@ -185,7 +210,7 @@ def directory_size(path: Path) -> int:
     return total
 
 
-def _tree_digest_and_size(path: Path) -> tuple[str, int]:
+def _tree_digest_and_size(path: Path, *, max_entries: int | None = None) -> tuple[str, int]:
     """One traversal producing both the tree digest and its total size.
 
     ``input_ref`` and ``verify_manifest`` need both; computing them with two
@@ -197,7 +222,9 @@ def _tree_digest_and_size(path: Path) -> tuple[str, int]:
         raise InputError(f"directory not found: {path}", context={"path": str(path)})
     digest = hashlib.sha256(b"gseek.tree/1\0")
     total = 0
-    for child, relative, kind in _tree_entries(root):
+    for child, relative, kind in _tree_entries(
+        root, max_entries=_DEFAULT_MAX_TREE_ENTRIES if max_entries is None else max_entries
+    ):
         encoded = relative.encode("utf-8")
         digest.update(kind.encode("ascii") + b"\0")
         digest.update(encoded + b"\0")
@@ -300,6 +327,7 @@ def new_run_id() -> str:
 
 
 def file_ref(path: Path) -> FileRef:
+    validate_path_text(path)
     resolved = path.resolve()
     if not resolved.is_file():
         raise InputError(f"file not found: {path}", context={"path": str(path)})
@@ -316,6 +344,7 @@ def input_ref(
     kind: InputKind | None = None,
     compute_records: bool = True,
 ) -> InputRef:
+    validate_path_text(path)
     resolved = path.resolve()
     if resolved.is_dir():
         if kind is not InputKind.SKETCH:
@@ -422,7 +451,11 @@ def recipe_hash(
         ],
         "index_key": index_key,
         "tools": [
-            {"name": tool.name, "version": tool.version}
+            {
+                "name": tool.name,
+                "version": tool.version,
+                **({"sha256": tool.sha256} if tool.sha256 is not None else {}),
+            }
             for tool in sorted(tools, key=lambda item: item.name)
         ],
     }
@@ -472,13 +505,27 @@ def alignment_result_hash(records: Sequence[AlignmentRecord]) -> str:
 def write_manifest(path: Path, manifest: RunManifest) -> Path:
     """Atomically write a pretty-printed ``gseek.run/1`` manifest."""
     text = json.dumps(manifest.to_dict(), indent=2, ensure_ascii=False, sort_keys=False) + "\n"
-    atomic_write_text(path, text)
+    # Manifests contain absolute paths, command argv, and stderr tails; keep
+    # them private instead of inheriting a permissive process umask.
+    atomic_write_text(path, text, mode=0o600)
     return path
 
 
-def read_manifest(path: Path) -> RunManifest:
+def read_manifest(path: Path, *, max_bytes: int | None = None) -> RunManifest:
     if not path.is_file():
         raise ManifestError(f"manifest not found: {path}", context={"path": str(path)})
+    limit = _DEFAULT_MAX_MANIFEST_BYTES if max_bytes is None else max(0, max_bytes)
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise ManifestError(
+            f"cannot stat manifest {path}: {exc}", context={"path": str(path)}
+        ) from exc
+    if size > limit:
+        raise ManifestError(
+            f"manifest is too large: {size} bytes (limit {limit})",
+            context={"path": str(path), "size": str(size), "limit": str(limit)},
+        )
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -504,11 +551,14 @@ def verify_manifest(
     *,
     base_dir: Path | None = None,
     prefetched: Mapping[str, tuple[int, str]] | None = None,
+    strict_paths: bool = False,
 ) -> tuple[Issue, ...]:
     """Check that recorded files still match their size and SHA-256.
 
     Tool versions are not re-probed here because that requires a resolver; the
-    CLI's ``verify`` command can add that check later.
+    CLI's ``verify`` command can add that check later. ``strict_paths`` confines
+    every recorded path (after resolving symlinks) to ``base_dir`` (or the
+    current directory when ``base_dir`` is omitted).
 
     ``prefetched`` maps a resolved path to a freshly computed ``(size,
     sha256)``. When present the values are used instead of re-reading the
@@ -524,6 +574,43 @@ def verify_manifest(
     for label, refs in groups:
         for ref in refs:
             path = _resolve_ref_path(ref.path, base_dir)
+            try:
+                validate_path_text(path)
+            except InputError:
+                issues.append(
+                    Issue(
+                        code=f"{label.upper()}_PATH_INVALID",
+                        message=f"{label} path contains control characters: {path!r}",
+                        severity="error",
+                        context={"path": repr(str(path))},
+                    )
+                )
+                continue
+            if strict_paths:
+                try:
+                    root = (base_dir or Path.cwd()).resolve()
+                    resolved = path.resolve()
+                except (OSError, RuntimeError, ValueError):
+                    issues.append(
+                        Issue(
+                            code=f"{label.upper()}_PATH_UNRESOLVABLE",
+                            message=f"{label} path cannot be resolved: {path}",
+                            severity="error",
+                            context={"path": str(path)},
+                        )
+                    )
+                    continue
+                if not resolved.is_relative_to(root):
+                    issues.append(
+                        Issue(
+                            code=f"{label.upper()}_PATH_OUTSIDE_BASE",
+                            message=f"{label} path escapes the base directory: {path}",
+                            severity="error",
+                            context={"path": str(path), "base_dir": str(root)},
+                        )
+                    )
+                    continue
+                path = resolved
             known = prefetched.get(str(path)) if prefetched is not None else None
             if known is not None:
                 size, digest = known
@@ -583,6 +670,69 @@ def verify_manifest(
                         context={"path": str(path), "expected": ref.sha256, "actual": digest},
                     )
                 )
+
+    # Structural and recipe checks: a manifest that only happens to point at
+    # intact files is not necessarily a complete or internally consistent run.
+    if not manifest.inputs:
+        issues.append(
+            Issue(
+                code="INPUTS_EMPTY",
+                message="manifest records no inputs",
+                severity="error",
+                context={"backend": manifest.backend},
+            )
+        )
+    if not manifest.targets:
+        issues.append(
+            Issue(
+                code="TARGETS_EMPTY",
+                message="manifest records no targets",
+                severity="error",
+                context={"backend": manifest.backend},
+            )
+        )
+    if manifest.status is RunStatus.FAILED:
+        issues.append(
+            Issue(
+                code="RUN_STATUS_FAILED",
+                message="manifest records a failed run",
+                severity="error",
+                context={"backend": manifest.backend},
+            )
+        )
+    try:
+        expected_recipe = recipe_hash(
+            backend=manifest.backend,
+            adapter_version=manifest.backend_version,
+            inputs=manifest.inputs,
+            targets=manifest.targets,
+            params=manifest.params,
+            tools=manifest.tools,
+            index_key=manifest.index.key if manifest.index is not None else None,
+            gseek_version_value=manifest.gseek_version,
+        )
+    except (InputError, TypeError, ValueError) as exc:
+        issues.append(
+            Issue(
+                code="RECIPE_HASH_UNVERIFIABLE",
+                message=f"manifest recipe cannot be recomputed: {exc}",
+                severity="error",
+                context={"backend": manifest.backend},
+            )
+        )
+    else:
+        if expected_recipe != manifest.recipe_hash:
+            issues.append(
+                Issue(
+                    code="RECIPE_HASH_MISMATCH",
+                    message="manifest recipe hash does not match its recorded fields",
+                    severity="error",
+                    context={
+                        "expected": manifest.recipe_hash,
+                        "actual": expected_recipe,
+                    },
+                )
+            )
     return tuple(issues)
 
 
@@ -611,6 +761,7 @@ __all__ = [
     "to_jsonable",
     "tool_refs",
     "utc_now_iso",
+    "validate_path_text",
     "verify_manifest",
     "write_manifest",
 ]

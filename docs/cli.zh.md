@@ -15,7 +15,7 @@ gseek --error-format {json,text} <command> ...
 
 | 选项 | 说明 |
 | --- | --- |
-| `--version` | 打印 `gseek 0.10.3` |
+| `--version` | 打印 `gseek 0.10.4` |
 | `--error-format json` | 默认；stderr 一行 `gseek.error/1` JSON |
 | `--error-format text` | 人类可读的 `gseek: message` + `hint:` |
 
@@ -29,9 +29,9 @@ gseek --error-format {json,text} <command> ...
 | `gseek doctor [--json]` | 探测外部工具路径/版本；缺失返回 1 |
 | `gseek index list [--json]` | 列出内容寻址索引缓存 |
 | `gseek index gc [--apply] [--json]` | 垃圾回收；默认 dry-run |
-| `gseek manifest verify PATH [--json]` | 检查 manifest 记录的文件哈希 |
-| `gseek verify PATH [--json]` | 同上，便捷别名 |
-| `gseek replay PATH [--check] [--json]` | 重新规划并重放，不执行旧 argv |
+| `gseek manifest verify PATH [--json] [--strict-paths]` | 检查 manifest 记录的文件哈希 |
+| `gseek verify PATH [--json] [--strict-paths]` | 同上，便捷别名 |
+| `gseek replay PATH [--check] [--json] [--strict-paths]` | 重新规划并重放，不执行旧 argv |
 | `gseek align ...` | 比对 FASTA/FASTQ 到 target |
 | `gseek distance ...` | mash/sourmash/skani 距离/ANI |
 
@@ -107,8 +107,9 @@ gseek doctor --json | jq '.[] | select(.ok == false)'
 
 1. 不要解析人类可读输出；用 `--json` 或 `align`/`distance` 的 JSON 文档。
 2. 失败时先看进程退出码，再解析 stderr 的 `gseek.error/1` JSON。
-3. `gseek replay --check` 可安全用于不可信 manifest：它按 adapter 重新规划，
-   不会执行记录下来的 argv。
+3. `gseek replay --check` 不会执行记录下来的 argv，但它不是沙箱：它会读取
+   manifest 指定的路径并调用配置的工具。处理不可信 manifest 时请使用
+   `--strict-paths` 和外部沙箱。
 4. 并发调用共享索引文件锁；`gseek index gc --apply` 应避开正在构建的任务。
 5. 外部工具必须能通过 `GSEEK_<BINARY>`、`GSEEK_PATH_PREPEND` 或 `PATH` 找到；
    先用 `gseek doctor` 检查。

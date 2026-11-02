@@ -43,6 +43,7 @@ def _manifest(tmp_path: Path) -> RunManifest:
         targets=(target_ref,),
         params={"evalue": 1e-5},
         tools=tools,
+        gseek_version_value="0.1.0",
     )
     return RunManifest(
         run_id="run-1",
@@ -95,6 +96,7 @@ def test_recipe_hash_ignores_threads_and_changes_with_semantics(tmp_path: Path) 
         targets=manifest.targets,
         params={"evalue": 1e-5, "threads": 64},
         tools=manifest.tools,
+        gseek_version_value=manifest.gseek_version,
     )
     changed = recipe_hash(
         backend="fake",
@@ -103,6 +105,7 @@ def test_recipe_hash_ignores_threads_and_changes_with_semantics(tmp_path: Path) 
         targets=manifest.targets,
         params={"evalue": 1e-10},
         tools=manifest.tools,
+        gseek_version_value=manifest.gseek_version,
     )
     assert threaded == base
     assert changed != base
@@ -190,9 +193,21 @@ def test_verify_manifest_detects_directory_tampering(tmp_path: Path) -> None:
     tree = tmp_path / "rocksdb"
     tree.mkdir()
     (tree / "000001.sst").write_bytes(b"data")
+    base = _manifest(tmp_path)
+    targets = (input_ref(tree, kind=InputKind.SKETCH, compute_records=False),)
     manifest = dataclasses.replace(
-        _manifest(tmp_path),
-        targets=(input_ref(tree, kind=InputKind.SKETCH, compute_records=False),),
+        base,
+        targets=targets,
+        recipe_hash=recipe_hash(
+            backend=base.backend,
+            adapter_version=base.backend_version,
+            inputs=base.inputs,
+            targets=targets,
+            params=base.params,
+            tools=base.tools,
+            index_key=base.index.key if base.index is not None else None,
+            gseek_version_value=base.gseek_version,
+        ),
     )
     assert verify_manifest(manifest) == ()
     (tree / "000001.sst").write_bytes(b"DATA")

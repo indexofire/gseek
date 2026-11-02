@@ -152,6 +152,7 @@ def align_many(
             query_refs=prepared_query_refs,
             target_refs=tuple(target_refs) if target_refs is not None else None,
             sort_records=False,
+            validate_query_refs=False,
         )
         records = _rewrite_query_ids(
             result.records, nonce, query_count=len(paths), annotate_batch=annotate_batch

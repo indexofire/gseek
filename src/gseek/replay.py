@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gseek.adapter import AlignRequest, DistanceRequest
-from gseek.errors import ManifestError, ReplayMismatchError
+from gseek.errors import InputError, ManifestError, ReplayMismatchError
 from gseek.execution import Executor, ToolResolver
 from gseek.index import IndexPolicy, IndexStore
 from gseek.model import AlignmentResult, DistanceResult, Issue, RunManifest
@@ -14,6 +14,7 @@ from gseek.provenance import (
     alignment_result_hash,
     distance_result_hash,
     read_manifest,
+    validate_path_text,
     verify_manifest,
 )
 from gseek.registry import get_backend
@@ -47,6 +48,7 @@ def replay(
     *,
     check: bool = False,
     base_dir: Path | str | None = None,
+    strict_paths: bool = False,
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
@@ -54,11 +56,19 @@ def replay(
     """Re-run a manifest recipe and optionally verify its canonical result hash.
 
     Only ``backend``, ``params``, input paths, threads, and paired mode are
-    used. Commands recorded in the manifest are never executed.
+    used. Commands recorded in the manifest are never executed. Replay is not a
+    sandbox: it reads the recorded paths and invokes the configured tools.
+    ``strict_paths=True`` confines every resolved input/target path to
+    ``base_dir`` (or the manifest's directory).
     """
     path = Path(manifest)
     document = read_manifest(path)
     root = Path(base_dir) if base_dir is not None else path.parent
+    if check and document.result_hash is None:
+        raise ManifestError(
+            "replay --check requires a manifest with a result_hash",
+            context={"backend": document.backend, "path": str(path)},
+        )
 
     spec = get_backend(document.backend).spec
     kind = str(document.extra.get("kind", ""))
@@ -73,8 +83,8 @@ def replay(
                 context={"backend": document.backend},
             )
 
-    query = tuple(_resolve(ref.path, root) for ref in document.inputs)
-    targets = tuple(_resolve(ref.path, root) for ref in document.targets)
+    query = tuple(_resolve(ref.path, root, strict=strict_paths) for ref in document.inputs)
+    targets = tuple(_resolve(ref.path, root, strict=strict_paths) for ref in document.targets)
     if not query or not targets:
         raise ManifestError(
             "manifest has no inputs or targets",
@@ -95,7 +105,20 @@ def replay(
     prefetched = {
         str(Path(ref.path).resolve()): (ref.size, ref.sha256) for ref in (*query_refs, *target_refs)
     }
-    issues = verify_manifest(document, base_dir=root, prefetched=prefetched)
+    issues = verify_manifest(
+        document,
+        base_dir=root,
+        prefetched=prefetched,
+        strict_paths=strict_paths,
+    )
+    if check and issues:
+        raise ReplayMismatchError(
+            f"replay verification failed for backend {document.backend!r}",
+            context={
+                "backend": document.backend,
+                "issues": ", ".join(issue.code for issue in issues),
+            },
+        )
     params = dict(document.params)
     target_filter_raw = params.pop("target_filter", None)
     target_filter = (
@@ -111,7 +134,14 @@ def replay(
     paired = bool(document.extra.get("paired", False))
     # The index policy changes the planned command sequence (subject vs db);
     # replaying under the default AUTO would fabricate result mismatches.
-    index_policy = str(document.extra.get("index_policy", "auto"))
+    index_policy_raw = str(document.extra.get("index_policy", "auto"))
+    try:
+        index_policy = IndexPolicy(index_policy_raw)
+    except ValueError as exc:
+        raise ManifestError(
+            f"manifest records an invalid index policy: {index_policy_raw!r}",
+            context={"index_policy": index_policy_raw},
+        ) from exc
     query_kind = document.inputs[0].kind
     external_reference = bool(document.extra.get("external_reference", False)) or any(
         ref.kind is InputKind.SKETCH for ref in document.targets
@@ -128,7 +158,7 @@ def replay(
                 paired=paired,
                 params=params,
                 threads=threads,
-                index_policy=IndexPolicy(index_policy),
+                index_policy=index_policy,
                 target_filter=frozenset(target_filter) if target_filter else None,
             ),
             backend=document.backend,
@@ -149,7 +179,7 @@ def replay(
                 query_kind=query_kind,
                 params=params,
                 threads=threads,
-                index_policy=IndexPolicy(index_policy),
+                index_policy=index_policy,
                 external_reference=external_reference,
                 external_sha256=document.targets[0].sha256 if external_reference else None,
                 external_size=document.targets[0].size if external_reference else None,
@@ -184,9 +214,30 @@ def replay(
     )
 
 
-def _resolve(value: str, root: Path) -> Path:
+def _resolve(value: str, root: Path, *, strict: bool = False) -> Path:
     path = Path(value)
-    return path if path.is_absolute() else (root / path).resolve()
+    try:
+        validate_path_text(path)
+        resolved = path.resolve() if path.is_absolute() else (root / path).resolve()
+    except (InputError, OSError, RuntimeError, ValueError) as exc:
+        raise ManifestError(
+            f"manifest path cannot be resolved: {value!r}",
+            context={"path": value},
+        ) from exc
+    if strict:
+        try:
+            base = root.resolve()
+        except (OSError, RuntimeError) as exc:  # pragma: no cover - defensive
+            raise ManifestError(
+                f"manifest base directory cannot be resolved: {root}",
+                context={"base_dir": str(root)},
+            ) from exc
+        if not resolved.is_relative_to(base):
+            raise ManifestError(
+                f"manifest path escapes the base directory: {value!r}",
+                context={"path": str(resolved), "base_dir": str(base)},
+            )
+    return resolved
 
 
 __all__ = ["ReplayResult", "replay"]

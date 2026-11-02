@@ -2,7 +2,7 @@
 
 **English** | [简体中文](https://indexofire.github.io/gseek/zh/api/)
 
-> Version: 0.10.3<br>
+> Version: 0.10.4<br>
 > Python: >=3.12<br>
 > Source: `src/gseek/`<br>
 > New users: read [Quickstart](quickstart.md) first.
@@ -27,7 +27,7 @@ All symbols below are importable from the top-level package:
 ```python
 import gseek
 
-gseek.__version__        # "0.10.3"
+gseek.__version__        # "0.10.4"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -95,6 +95,7 @@ gseek.align(
     query_refs: Sequence[InputRef] | None = None,
     target_refs: Sequence[InputRef] | None = None,
     sort_records: bool = True,
+    verify_inputs: bool = False,
 ) -> AlignmentResult
 ```
 
@@ -119,6 +120,7 @@ gseek.align(
 | `resolver` / `executor` / `store` | inject custom infrastructure |
 | `query_refs` / `target_refs` | precomputed `InputRef` tuples (from `gseek.provenance.input_refs`) that skip re-hashing; lengths must match the path arguments. Useful when running many queries against one target. |
 | `sort_records` | `False` keeps parser order for consumers that re-sort/aggregate immediately; default canonical ordering is unchanged. |
+| `verify_inputs` | re-hash query/target refs after the tool and fail if an input changed mid-run; off by default (doubles input I/O). |
 
 If `backend` and `adapter` are both omitted, gseek filters registered adapters
 by input/output/paired capabilities. Exactly one candidate must remain; zero or
@@ -163,6 +165,7 @@ process and workspace.
 By default `iter_align` does not hash the query at all and hashes the target
 only when a content-addressed index needs its key. Pass `prepare_refs=True`
 when a custom adapter consumes `PlanContext.query_refs` / `target_refs`.
+`verify_inputs=True` prepares refs and re-hashes them after iteration.
 
 ### 2.3 `gseek.align_many`
 
@@ -211,6 +214,7 @@ gseek.distance(
     keep_work: bool = False,
     manifest: Path | str | None = None,
     record_manifest: bool = True,
+    verify_inputs: bool = False,
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
@@ -223,6 +227,8 @@ Used by mash, sourmash, and skani. There are no alignment coordinates.
 than FASTA: `.msh`, `.sig`/`.zip`, a sourmash rocksdb directory, or a skani
 database directory. In that case gseek skips reference indexing and hashes the
 artifact (directories use deterministic tree hashing; symlinks are rejected).
+`verify_inputs=True` optionally re-hashes query/reference refs after the tool to
+detect inputs that changed mid-run.
 
 ### 2.5 Registry queries
 
@@ -268,7 +274,9 @@ for issue in issues:
     print(issue.severity, issue.code, issue.message)
 ```
 
-`verify` checks recorded file sizes/SHA-256. It does not re-probe tools or rerun.
+`verify` checks recorded file sizes/SHA-256, recomputes `recipe_hash`, and
+rejects empty input/target manifests. `strict_paths=True` confines every
+resolved path to `base_dir`. It does not re-probe tools or rerun.
 
 ### 2.8 Replay
 
@@ -281,7 +289,9 @@ print(result.matches, result.issues)
 ```
 
 Replay re-plans through the adapter from the manifest; it never executes stored
-argv. `check=True` compares the new result hash and raises/reports a mismatch.
+argv. `check=True` requires a recorded `result_hash`, fails on any verification
+issue, and compares the new result hash. `strict_paths=True` confines resolved
+paths to `base_dir`, but replay is still not a sandbox.
 
 ### 2.9 Consumer switch: `gseek.compat`
 
@@ -440,25 +450,32 @@ Responsibilities:
 
 - resolve binaries and run with an argv list;
 - set `LC_ALL=C`, deterministic environment, absolute paths;
-- enforce timeouts, drain stderr, support streaming;
+- enforce timeouts and bounded stdout/stderr capture, support streaming;
 - return exit code/stdout/stderr without interpreting tool semantics.
 
 ### 5.3 `ToolResolver`
 
 Discovers binaries from PATH and explicit overrides, probes versions, caches
-results per process, and raises typed errors for missing/old tools.
+results per process, and raises typed errors for missing/old tools. Tool
+SHA-256 is opt-in (`GSEEK_TOOL_HASH=1` or `ToolResolver(hash_tools=True)`) and
+persisted in `GSEEK_CACHE_DIR/tool-hashes.json`, keyed by path/size/mtime/inode.
 
 ### 5.4 Environment variables
 
 | Variable | Meaning |
 | --- | --- |
 | `GSEEK_CACHE_DIR` | index cache root |
+| `GSEEK_INDEX_VERIFY` | `1`/`full` re-hashes cached index artifacts on lookup |
+| `GSEEK_MAX_DECOMPRESSED_BYTES` | override the compressed-input budget |
+| `GSEEK_TOOL_HASH` | `1`/`full` records tool binary SHA-256 in manifests/keys |
 | `GSEEK_<BINARY>` | explicit tool path, e.g. `GSEEK_BLASTN` |
 | `GSEEK_*_TIMEOUT` | per-tool timeout overrides where supported |
 | `LC_ALL` | forced to `C` for tool execution |
 
-Secrets are never written to manifests; only allowlisted environment values are
-recorded.
+Only an allowlisted environment subset is recorded automatically. Manifest
+`params`, `commands.argv`, and `stderr_tail` are recorded verbatim and may
+contain sensitive values; use `record_manifest=False` for sensitive jobs or
+redact values before writing.
 
 ### 5.5 Workspace
 
@@ -480,20 +497,28 @@ inside the workspace or index staging directory.
 ### 6.2 Content-addressed key
 
 The key includes adapter name/version, semantic parameters, target content
-SHA-256, and tool version. `threads`, `timeout`, and other non-semantic values
-are excluded. There are no mtime decisions.
+SHA-256, and tool version (plus tool SHA-256 when `GSEEK_TOOL_HASH` is enabled).
+`threads`, `timeout`, and other non-semantic values are excluded. There are no
+mtime decisions.
 
 ### 6.3 Cache layout and GC
 
 Indexes are stored under the cache root by key with a lock file, staging
-directory, and atomic publish. `IndexStore` supports lookup, build, purge, and
-garbage collection. `gseek index gc` is a dry run unless `--apply` is passed.
+directory, and atomic publish. Index/adapter directories are created `0700`
+and index files `0600`; a shared cache is not a security boundary. `index.json`
+records artifact sizes/SHA-256; lookup checks sizes by default and only
+re-hashes when `GSEEK_INDEX_VERIFY=1`/`full` (or `IndexStore(verify_artifacts=True)`)
+is used. Long runs hold a refreshed in-use lease; GC/rebuild skip leased entries
+and re-check the directory identity before deletion. `IndexStore` supports
+lookup, build, purge, and garbage collection.
+`gseek index gc` is a dry run unless `--apply` is passed.
 
 ## 7. Reproducibility and manifests
 
 ### 7.1 Hashing
 
-- `sha256_file`, `sha256_tree` (deterministic tree hash; symlinks rejected)
+- `sha256_file`, `sha256_tree` (deterministic tree hash; symlinks rejected;
+  bounded by a max entry count)
 - `canonical_json` / `sha256_json`
 - `result_hash` over sorted normalized records
 
@@ -523,13 +548,19 @@ inputs/tools are used.
 }
 ```
 
-`write_manifest`/`read_manifest` round-trip the model. `verify_manifest` checks
-recorded file hashes. `replay` re-plans and can compare `result_hash`.
+`write_manifest`/`read_manifest` round-trip the model; `read_manifest` rejects
+files larger than 64 MiB by default. `verify_manifest` checks recorded file
+hashes and recomputes `recipe_hash`. `replay` re-plans and can compare
+`result_hash`; `--check` fails on missing hashes or verification issues.
 
 ## 8. I/O and views
 
 - `gseek.io`: FASTA/FASTQ readers, line normalization, `merge_fasta`.
 - `gseek.views`: explicit record views used by consumers.
+- Compressed inputs have a decompression budget of `max(16 MiB, 64 × disk size)`;
+  `open_text(max_chars=...)` can override it.
+- Input paths, sequence IDs, and BWA read groups reject control characters;
+  `to_tsv` escapes tabs/newlines instead of creating extra columns/rows.
 - No adapter writes outside its workspace.
 
 ## 9. Errors
@@ -577,8 +608,8 @@ Schemas are versioned; breaking changes require a new schema string.
 
 ## 12. Stability and limits
 
-- `0.10.3` is the current release; pin it in production. Public API may still change before 1.0.
-- Pin `gseek==0.10.3` in production and keep a legacy path via
+- `0.10.4` is the current release; pin it in production. Public API may still change before 1.0.
+- Pin `gseek==0.10.4` in production and keep a legacy path via
   `gseek.compat` while migrating.
 - Backend coverage differs by tool; see the matrix at the top.
 - Manifest replay requires the same adapter/tool versions; environment changes

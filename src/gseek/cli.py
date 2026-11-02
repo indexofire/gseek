@@ -70,17 +70,32 @@ def _build_parser() -> argparse.ArgumentParser:
     manifest_verify = manifest_sub.add_parser("verify", help="verify recorded file hashes")
     manifest_verify.add_argument("path", type=Path)
     manifest_verify.add_argument("--base-dir", "-d", type=Path, default=None)
+    manifest_verify.add_argument(
+        "--strict-paths",
+        action="store_true",
+        help="require every resolved path to stay inside --base-dir",
+    )
     manifest_verify.add_argument("--json", action="store_true")
 
     # Convenience alias matching the plan's `gseek verify run.json`.
     verify_parser = subparsers.add_parser("verify", help="verify a run manifest")
     verify_parser.add_argument("path", type=Path)
     verify_parser.add_argument("--base-dir", type=Path, default=None)
+    verify_parser.add_argument(
+        "--strict-paths",
+        action="store_true",
+        help="require every resolved path to stay inside --base-dir",
+    )
     verify_parser.add_argument("--json", action="store_true")
 
     replay_parser = subparsers.add_parser("replay", help="re-run a manifest recipe")
     replay_parser.add_argument("path", type=Path)
     replay_parser.add_argument("--base-dir", type=Path, default=None)
+    replay_parser.add_argument(
+        "--strict-paths",
+        action="store_true",
+        help="require every resolved path to stay inside --base-dir",
+    )
     replay_parser.add_argument(
         "--check",
         "-c",
@@ -337,7 +352,7 @@ def _cmd_manifest(args: argparse.Namespace) -> int:
     manifest = read_manifest(args.path)
     base_dir = args.base_dir if args.base_dir is not None else args.path.resolve().parent
     # Pass the parsed document: verify() must not read and parse the file again.
-    issues = verify(manifest, base_dir=base_dir)
+    issues = verify(manifest, base_dir=base_dir, strict_paths=args.strict_paths)
     if args.json:
         _print_json({"manifest": manifest.to_dict(), "issues": issues})
     else:
@@ -353,7 +368,12 @@ def _cmd_manifest(args: argparse.Namespace) -> int:
 
 
 def _cmd_replay(args: argparse.Namespace) -> int:
-    outcome = replay(args.path, check=args.check, base_dir=args.base_dir)
+    outcome = replay(
+        args.path,
+        check=args.check,
+        base_dir=args.base_dir,
+        strict_paths=args.strict_paths,
+    )
     if args.json:
         print(json.dumps(outcome.to_dict(), ensure_ascii=False, sort_keys=True))
         return 0

@@ -87,7 +87,8 @@ def _format_cell(value: JsonValue) -> str:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
-    return str(value)
+    # A tab/newline in an ID or tag must not create extra TSV columns/rows.
+    return str(value).replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
 
 
 def deduplicate_intervals(records: Iterable[AlignmentRecord]) -> tuple[AlignmentRecord, ...]:

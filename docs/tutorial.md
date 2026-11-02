@@ -26,7 +26,7 @@ correct, or which phenotype a genome has. Those are consumer rules.
 Python **3.12+** is required:
 
 ```bash
-pip install gseek==0.10.3
+pip install gseek==0.10.4
 ```
 
 External tools are not Python dependencies. Install the ones you need:

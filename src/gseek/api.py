@@ -27,7 +27,12 @@ from gseek.registry import (
 )
 from gseek.replay import ReplayResult
 from gseek.replay import replay as _replay
-from gseek.runner import iter_alignment, run_alignment, run_distance
+from gseek.runner import (
+    iter_alignment,
+    run_alignment,
+    run_distance,
+    validate_ref_paths,
+)
 from gseek.types import InputKind, JsonValue, Molecule, OutputKind
 
 
@@ -59,15 +64,15 @@ def _precomputed_refs(
     *,
     role: str,
 ) -> tuple[InputRef, ...] | None:
-    """Validate a precomputed ref tuple against the request's path count."""
+    """Validate precomputed refs against the request's paths.
+
+    Length and resolved-path equality are checked; content hashes are not
+    re-computed because avoiding that scan is the purpose of this API.
+    """
     if refs is None:
         return None
     materialized = tuple(refs)
-    if len(materialized) != len(paths):
-        raise ConfigError(
-            f"{role}_refs has {len(materialized)} ref(s), but {role} has {len(paths)} path(s)",
-            context={"role": role, "refs": str(len(materialized)), "paths": str(len(paths))},
-        )
+    validate_ref_paths(materialized, paths, role=role)
     return materialized
 
 
@@ -143,6 +148,7 @@ def align(
     query_refs: Sequence[InputRef] | None = None,
     target_refs: Sequence[InputRef] | None = None,
     sort_records: bool = True,
+    verify_inputs: bool = False,
 ) -> AlignmentResult:
     """Align one query (or read pair) against a target set.
 
@@ -181,6 +187,9 @@ def align(
             once and pass the same refs for every call.
         sort_records: Apply the default canonical ordering. Pass ``False``
             when the consumer immediately re-sorts or aggregates the rows.
+        verify_inputs: Re-hash query/target refs after the tool finishes and
+            fail if an input changed mid-run. Off by default; it doubles input
+            I/O.
 
     Returns:
         An :class:`~gseek.AlignmentResult` with normalized records, stats,
@@ -216,6 +225,7 @@ def align(
         query_refs=_precomputed_refs(query_refs, request.query, role="query"),
         target_refs=_precomputed_refs(target_refs, request.target, role="target"),
         sort_records=sort_records,
+        verify_inputs=verify_inputs,
     )
 
 
@@ -241,6 +251,7 @@ def iter_align(
     query_refs: Sequence[InputRef] | None = None,
     target_refs: Sequence[InputRef] | None = None,
     prepare_refs: bool = False,
+    verify_inputs: bool = False,
 ) -> Iterator[AlignmentRecord]:
     """Yield alignment records as they are parsed (no materialized result).
 
@@ -253,7 +264,8 @@ def iter_align(
     ``target_refs`` are precomputed :class:`~gseek.model.InputRef` tuples.
     By default queries are not hashed and the target is hashed only when a
     content-addressed index needs its key. Pass ``prepare_refs=True`` when a
-    custom adapter consumes ``PlanContext`` refs.
+    custom adapter consumes ``PlanContext`` refs. ``verify_inputs=True``
+    re-hashes the refs after iteration and fails if an input changed.
     """
     request = _align_request(
         query=query,
@@ -279,6 +291,7 @@ def iter_align(
         query_refs=_precomputed_refs(query_refs, request.query, role="query"),
         target_refs=_precomputed_refs(target_refs, request.target, role="target"),
         prepare_refs=prepare_refs,
+        verify_inputs=verify_inputs,
     )
 
 
@@ -300,6 +313,7 @@ def distance(
     keep_work: bool = False,
     manifest: Path | str | None = None,
     record_manifest: bool = True,
+    verify_inputs: bool = False,
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
@@ -328,6 +342,8 @@ def distance(
         work_dir: Parent directory for temporary run workspaces.
         keep_work: Keep the workspace for debugging.
         manifest: Write a ``gseek.run/1`` manifest for ``verify``/``replay``.
+        verify_inputs: Re-hash query/reference refs after the command and fail
+            if an input changed mid-run. Off by default; it doubles I/O.
         resolver: Custom tool resolver.
         executor: Custom subprocess executor.
         store: Custom index store.
@@ -370,6 +386,7 @@ def distance(
         store=store,
         manifest_path=Path(manifest) if manifest is not None else None,
         record_manifest=record_manifest,
+        verify_inputs=verify_inputs,
     )
 
 
@@ -393,12 +410,15 @@ def verify(
     manifest: Path | str | RunManifest,
     *,
     base_dir: Path | str | None = None,
+    strict_paths: bool = False,
 ) -> tuple[Issue, ...]:
     """Verify the file hashes recorded in a run manifest.
 
     When ``manifest`` is a path and ``base_dir`` is omitted, relative paths in
     a legacy manifest are resolved against the manifest's directory, matching
     :func:`gseek.replay`. New manifests record absolute input paths.
+    ``strict_paths=True`` additionally requires every resolved path to stay
+    inside ``base_dir`` (or the current directory for in-memory manifests).
     """
     if isinstance(manifest, RunManifest):
         document = manifest
@@ -407,7 +427,7 @@ def verify(
         path = Path(manifest)
         document = read_manifest(path)
         resolved_base = Path(base_dir) if base_dir is not None else path.resolve().parent
-    return verify_manifest(document, base_dir=resolved_base)
+    return verify_manifest(document, base_dir=resolved_base, strict_paths=strict_paths)
 
 
 def replay(
@@ -415,6 +435,7 @@ def replay(
     *,
     check: bool = False,
     base_dir: Path | str | None = None,
+    strict_paths: bool = False,
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
@@ -424,6 +445,7 @@ def replay(
         manifest,
         check=check,
         base_dir=base_dir,
+        strict_paths=strict_paths,
         resolver=resolver,
         executor=executor,
         store=store,

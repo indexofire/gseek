@@ -38,7 +38,7 @@ from gseek.execution import (
     create_workspace,
     env_for_manifest,
 )
-from gseek.index import IndexPolicy, IndexStore, compute_index_key
+from gseek.index import IndexLease, IndexPolicy, IndexStore, compute_index_key
 from gseek.io import expand_fasta_paths
 from gseek.model import (
     AlignmentRecord,
@@ -66,6 +66,7 @@ from gseek.provenance import (
     recipe_hash,
     sha256_json,
     utc_now_iso,
+    validate_path_text,
     write_manifest,
 )
 from gseek.registry import find_backends, get_backend
@@ -109,6 +110,66 @@ def _checked_records[RecordT: (AlignmentRecord, DistanceRecord)](
             context={"backend": backend},
         )
     return cast(tuple[RecordT, ...], normalized)
+
+
+def verify_refs_unchanged(refs: Sequence[InputRef], *, role: str) -> None:
+    """Re-hash refs after a run and fail if an input changed underneath it."""
+    if not refs:
+        return
+    current = input_refs(
+        tuple(Path(ref.path) for ref in refs),
+        kind=refs[0].kind,
+        compute_records=False,
+    )
+    for before, after in zip(refs, current, strict=True):
+        if before.path != after.path or before.size != after.size or before.sha256 != after.sha256:
+            raise InputError(
+                f"{role} input changed during the run: {before.path}",
+                context={
+                    "role": role,
+                    "path": before.path,
+                    "expected": before.sha256,
+                    "actual": after.sha256,
+                },
+            )
+
+
+def validate_ref_paths(
+    refs: Sequence[InputRef],
+    paths: Sequence[Path],
+    *,
+    role: str,
+    allow_empty: bool = False,
+) -> None:
+    """Require precomputed refs to describe exactly the requested paths.
+
+    ``target_refs`` are used as the concrete target list, so accepting a ref
+    for a different file would silently redirect the run (and poison its index
+    key/provenance). The check is a resolve comparison only; it never re-hashes.
+    """
+    if allow_empty and not refs:
+        return
+    if len(refs) != len(paths):
+        raise ConfigError(
+            f"{role}_refs has {len(refs)} ref(s), but {role} has {len(paths)} path(s)",
+            context={"role": role, "refs": str(len(refs)), "paths": str(len(paths))},
+        )
+    for ref, path in zip(refs, paths, strict=True):
+        try:
+            validate_path_text(Path(ref.path))
+            validate_path_text(Path(path))
+            ref_path = Path(ref.path).resolve()
+            requested = Path(path).resolve()
+        except (InputError, OSError, RuntimeError, ValueError) as exc:
+            raise ConfigError(
+                f"{role}_refs contains an invalid path: {ref.path!r}",
+                context={"role": role, "ref": ref.path},
+            ) from exc
+        if ref_path != requested:
+            raise ConfigError(
+                f"{role}_refs path {ref_path} does not match {role} path {requested}",
+                context={"role": role, "ref": str(ref_path), "path": str(requested)},
+            )
 
 
 def resolve_adapter(
@@ -258,6 +319,7 @@ def _index_key(
     otherwise the archived provenance misdescribes the cache entry.
     """
     tool_versions = {tool.name: tool.version for tool in tools}
+    tool_hashes = {tool.name: tool.sha256 for tool in tools if tool.sha256 is not None}
     index_params_fn = getattr(adapter, "index_params", None)
     if callable(index_params_fn):
         index_params = dict(cast(Mapping[str, JsonValue], index_params_fn(request.params)))
@@ -269,6 +331,7 @@ def _index_key(
         targets=target_refs,
         params=index_params,
         tool_versions=tool_versions,
+        tool_hashes=tool_hashes or None,
     )
     return key, index_params, tool_versions
 
@@ -283,7 +346,7 @@ def _ensure_index(
     executor: Executor,
     store: IndexStore,
     policy: IndexPolicy,
-) -> tuple[IndexRef | None, tuple[CommandRecord, ...]]:
+) -> tuple[IndexRef | None, tuple[CommandRecord, ...], IndexLease | None]:
     spec = adapter.spec
     if (
         not store.enabled
@@ -291,13 +354,15 @@ def _ensure_index(
         or policy is IndexPolicy.NONE
         or (isinstance(request, DistanceRequest) and request.external_reference)
     ):
-        return None, ()
+        return None, (), None
 
     key, index_params, tool_versions = _index_key(spec, adapter, request, target_refs, tools)
     with store.lock(spec.name, key):
         existing = store.lookup(spec.name, key)
         if existing is not None and policy is not IndexPolicy.REBUILD:
-            return existing, ()
+            lease = store.lease(spec.name, existing.key)
+            lease.start()
+            return existing, (), lease
         if policy is IndexPolicy.REUSE and existing is None:
             raise IndexBuildError(
                 f"index {key} is not cached and index_policy=reuse",
@@ -325,7 +390,7 @@ def _ensure_index(
             plan = adapter.plan_index(index_request, ctx)
             if plan is None:
                 shutil.rmtree(staging, ignore_errors=True)
-                return None, ()
+                return None, (), None
             records = _run_commands(plan.commands, executor, phase="index")
             source_sha256 = sha256_json(
                 [
@@ -345,7 +410,9 @@ def _ensure_index(
                 tool_versions=tool_versions,
                 replace=policy is IndexPolicy.REBUILD,
             )
-            return published, records
+            lease = store.lease(spec.name, published.key)
+            lease.start()
+            return published, records, lease
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
             raise
@@ -498,6 +565,8 @@ def run_alignment(
     query_refs: tuple[InputRef, ...] | None = None,
     target_refs: tuple[InputRef, ...] | None = None,
     sort_records: bool = True,
+    validate_query_refs: bool = True,
+    verify_inputs: bool = False,
 ) -> AlignmentResult:
     """Run one alignment request and return normalized records plus provenance.
 
@@ -505,7 +574,11 @@ def run_alignment(
     :func:`gseek.provenance.input_refs`) so callers that already hashed the
     files — replay, verify flows — do not pay the full-file scan again.
     ``sort_records=False`` keeps parser order for consumers that immediately
-    re-sort or aggregate the rows.
+    re-sort or aggregate the rows. ``validate_query_refs=False`` is reserved for
+    batched runs whose request query is an internal merged file while the refs
+    describe the original per-file inputs. ``verify_inputs=True`` re-hashes the
+    refs after the tool finishes and raises if an input changed mid-run; it is
+    off by default because it doubles input I/O.
     """
     started = time.monotonic()
     # Config errors fail fast: before any probe, index build, or command runs.
@@ -532,6 +605,10 @@ def run_alignment(
         {tool.name: tool.path for tool in tools if tool.path is not None}
     )
 
+    if query_refs is not None and validate_query_refs:
+        validate_ref_paths(query_refs, request.query, role="query")
+    if target_refs is not None:
+        validate_ref_paths(target_refs, request.target, role="target")
     if query_refs is None:
         query_refs = _prepare_queries(request, compute_records=record_manifest)
     if target_refs is None:
@@ -558,7 +635,7 @@ def run_alignment(
         executor = executor.with_tool_paths(bindings)
     params = _effective_params(align_adapter, effective_request)
 
-    index, index_commands = _ensure_index(
+    index, index_commands, lease = _ensure_index(
         adapter=align_adapter,
         request=effective_request,
         target_refs=target_refs,
@@ -569,14 +646,16 @@ def run_alignment(
         policy=request.index_policy,
     )
     align_commands: tuple[CommandRecord, ...] = ()
-    if index is not None:
-        store.mark_in_use(spec.name, index.key)
-
-    workspace = create_workspace(
-        prefix=f"gseek-{spec.name}-",
-        parent=request.work_dir,
-        keep=request.keep_work,
-    )
+    try:
+        workspace = create_workspace(
+            prefix=f"gseek-{spec.name}-",
+            parent=request.work_dir,
+            keep=request.keep_work,
+        )
+    except BaseException:
+        if lease is not None:
+            lease.close()
+        raise
     try:
         index_dir = store.path_for(spec.name, index.key) if index is not None else None
         ctx = PlanContext(
@@ -631,6 +710,9 @@ def run_alignment(
             records = tuple(align_adapter.parse_align(parse_ctx))
 
         normalized = _checked_records(records, AlignmentRecord, spec.name)
+        if verify_inputs:
+            verify_refs_unchanged(query_refs, role="query")
+            verify_refs_unchanged(target_refs, role="target")
         runtime_s = time.monotonic() - align_started
         stats = build_alignment_stats(
             normalized,
@@ -702,6 +784,8 @@ def run_alignment(
                 write_manifest(destination, failed_manifest)
         raise
     finally:
+        if lease is not None:
+            lease.close()
         workspace.cleanup()
 
 
@@ -725,6 +809,7 @@ def iter_alignment(
     query_refs: tuple[InputRef, ...] | None = None,
     target_refs: tuple[InputRef, ...] | None = None,
     prepare_refs: bool = False,
+    verify_inputs: bool = False,
 ) -> Iterator[AlignmentRecord]:
     """Yield normalized alignment records as they are parsed.
 
@@ -759,10 +844,18 @@ def iter_alignment(
         {tool.name: tool.path for tool in tools if tool.path is not None}
     )
 
+    if query_refs:
+        validate_ref_paths(query_refs, request.query, role="query", allow_empty=True)
+    if target_refs:
+        validate_ref_paths(target_refs, request.target, role="target", allow_empty=True)
     if query_refs is None:
-        query_refs = _prepare_queries(request, compute_records=False) if prepare_refs else ()
+        query_refs = (
+            _prepare_queries(request, compute_records=False)
+            if prepare_refs or verify_inputs
+            else ()
+        )
     if target_refs is None:
-        if prepare_refs or _index_will_run(spec, request, store):
+        if prepare_refs or verify_inputs or _index_will_run(spec, request, store):
             target_files, target_refs = _prepare_targets(request, compute_records=False)
         else:
             target_files = expand_fasta_paths(request.target)
@@ -786,7 +879,7 @@ def iter_alignment(
     if bindings:
         executor = executor.with_tool_paths(bindings)
 
-    index, _index_commands = _ensure_index(
+    index, _index_commands, lease = _ensure_index(
         adapter=align_adapter,
         request=effective_request,
         target_refs=target_refs,
@@ -796,14 +889,16 @@ def iter_alignment(
         store=store,
         policy=request.index_policy,
     )
-    if index is not None:
-        store.mark_in_use(spec.name, index.key)
-
-    workspace = create_workspace(
-        prefix=f"gseek-{spec.name}-",
-        parent=request.work_dir,
-        keep=request.keep_work,
-    )
+    try:
+        workspace = create_workspace(
+            prefix=f"gseek-{spec.name}-",
+            parent=request.work_dir,
+            keep=request.keep_work,
+        )
+    except BaseException:
+        if lease is not None:
+            lease.close()
+        raise
     try:
         index_dir = store.path_for(spec.name, index.key) if index is not None else None
         ctx = PlanContext(
@@ -842,7 +937,17 @@ def iter_alignment(
         else:
             _run_commands(plan.commands, executor, phase="align")
             yield from checked(align_adapter.parse_align(parse_ctx))
+        if verify_inputs:
+            if not query_refs or not target_refs:
+                raise ConfigError(
+                    "iter_align(verify_inputs=True) requires prepared query and target refs",
+                    context={"backend": spec.name},
+                )
+            verify_refs_unchanged(query_refs, role="query")
+            verify_refs_unchanged(target_refs, role="target")
     finally:
+        if lease is not None:
+            lease.close()
         workspace.cleanup()
 
 
@@ -858,11 +963,14 @@ def run_distance(
     record_manifest: bool = True,
     query_refs: tuple[InputRef, ...] | None = None,
     target_refs: tuple[InputRef, ...] | None = None,
+    verify_inputs: bool = False,
 ) -> DistanceResult:
     """Run one MinHash/distance request.
 
     ``query_refs``/``target_refs`` accept precomputed input references so
     callers that already hashed the files do not pay the scan again.
+    ``verify_inputs=True`` re-hashes them after the command and rejects a run
+    whose input changed mid-flight.
     """
     started = time.monotonic()
     # Config errors fail fast: before any probe, index build, or command runs.
@@ -889,6 +997,10 @@ def run_distance(
         {tool.name: tool.path for tool in tools if tool.path is not None}
     )
 
+    if query_refs is not None:
+        validate_ref_paths(query_refs, request.query, role="query")
+    if target_refs is not None:
+        validate_ref_paths(target_refs, request.reference, role="target")
     if query_refs is None:
         query_refs = _prepare_queries(request, compute_records=record_manifest)
     if target_refs is None:
@@ -914,7 +1026,7 @@ def run_distance(
         executor = executor.with_tool_paths(bindings)
     params = _effective_params(distance_adapter, effective_request)
 
-    index, index_commands = _ensure_index(
+    index, index_commands, lease = _ensure_index(
         adapter=distance_adapter,
         request=effective_request,
         target_refs=target_refs,
@@ -925,14 +1037,16 @@ def run_distance(
         policy=request.index_policy,
     )
     distance_commands: tuple[CommandRecord, ...] = ()
-    if index is not None:
-        store.mark_in_use(spec.name, index.key)
-
-    workspace = create_workspace(
-        prefix=f"gseek-{spec.name}-",
-        parent=request.work_dir,
-        keep=request.keep_work,
-    )
+    try:
+        workspace = create_workspace(
+            prefix=f"gseek-{spec.name}-",
+            parent=request.work_dir,
+            keep=request.keep_work,
+        )
+    except BaseException:
+        if lease is not None:
+            lease.close()
+        raise
     try:
         index_dir = store.path_for(spec.name, index.key) if index is not None else None
         ctx = PlanContext(
@@ -987,6 +1101,9 @@ def run_distance(
             records = tuple(distance_adapter.parse_distance(parse_ctx))
 
         normalized = _checked_records(records, DistanceRecord, spec.name)
+        if verify_inputs:
+            verify_refs_unchanged(query_refs, role="query")
+            verify_refs_unchanged(target_refs, role="target")
         runtime_s = time.monotonic() - align_started
         stats = DistanceStats(
             record_count=len(normalized),
@@ -1055,6 +1172,8 @@ def run_distance(
                 write_manifest(destination, failed_manifest)
         raise
     finally:
+        if lease is not None:
+            lease.close()
         workspace.cleanup()
 
 

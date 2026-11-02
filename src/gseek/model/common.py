@@ -18,6 +18,17 @@ def is_sha256_hex(value: str) -> bool:
     return len(value) == 64 and all(char in _HEX_DIGITS for char in value)
 
 
+def validate_identifier(name: str, value: str) -> None:
+    """Reject empty IDs and control characters that can forge tabular output."""
+    if not value:
+        raise InputError(f"{name} must not be empty")
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise InputError(
+            f"{name} must not contain control characters: {value!r}",
+            context={"field": name},
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class FileRef:
     """A file recorded in a manifest, with its content digest."""

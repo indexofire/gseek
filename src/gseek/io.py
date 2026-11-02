@@ -13,7 +13,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Literal
+from typing import IO, Literal, cast
 
 from gseek.errors import DuplicateIdError, InputError, ParseError
 from gseek.types import InputKind
@@ -42,6 +42,10 @@ class SequenceRecord:
             raise InputError("sequence ID must not be empty")
         if _WHITESPACE_RE.search(self.sequence_id):
             raise InputError(f"sequence ID must not contain whitespace: {self.sequence_id!r}")
+        if any(ord(char) < 32 or ord(char) == 127 for char in self.sequence_id):
+            raise InputError(
+                f"sequence ID must not contain control characters: {self.sequence_id!r}"
+            )
 
     @property
     def header(self) -> str:
@@ -57,6 +61,84 @@ def strip_compression_suffix(path: Path) -> Path:
 
 def is_compressed(path: Path) -> bool:
     return path.suffix.lower() in _COMPRESSION_SUFFIXES
+
+
+class _LimitedTextReader:
+    """Count decompressed characters and fail before an expansion bomb grows."""
+
+    _READ_CHUNK = 64 * 1024
+
+    def __init__(self, handle: IO[str], limit: int, path: Path) -> None:
+        self._handle = handle
+        self._limit = limit
+        self._path = path
+        self._count = 0
+
+    def _check(self, text: str) -> str:
+        self._count += len(text)
+        if self._count > self._limit:
+            raise ParseError(
+                f"decompressed input exceeds {self._limit} characters: {self._path}",
+                path=str(self._path),
+            )
+        return text
+
+    def _readline(self, size: int = -1) -> str:
+        if size == 0:
+            return ""
+        parts: list[str] = []
+        total = 0
+        while True:
+            chunk_size = min(self._READ_CHUNK, size - total) if size >= 0 else self._READ_CHUNK
+            chunk = self._handle.readline(chunk_size)
+            if not chunk:
+                break
+            parts.append(self._check(chunk))
+            total += len(chunk)
+            if chunk.endswith("\n") or (size >= 0 and total >= size):
+                break
+        return "".join(parts)
+
+    def __iter__(self) -> _LimitedTextReader:
+        return self
+
+    def __next__(self) -> str:
+        line = self._readline()
+        if not line:
+            raise StopIteration
+        return line
+
+    def readline(self, size: int = -1) -> str:
+        return self._readline(size)
+
+    def read(self, size: int = -1) -> str:
+        if size < 0:
+            size = max(1, self._limit - self._count + 1)
+        return self._check(self._handle.read(size))
+
+    def close(self) -> None:
+        self._handle.close()
+
+
+def _decompression_limit(path: Path) -> int | None:
+    """A generous cap for compressed inputs, proportional to their disk size.
+
+    Legitimate FASTA/FASTQ compression is usually <10x; 64x (with a small
+    floor) leaves ample headroom while stopping a tiny archive from expanding
+    to an unbounded stream. ``GSEEK_MAX_DECOMPRESSED_BYTES`` overrides the
+    computed budget for unusually compressible, trusted inputs.
+    """
+    if not is_compressed(path):
+        return None
+    configured = os.environ.get("GSEEK_MAX_DECOMPRESSED_BYTES", "")
+    if configured:
+        with suppress(ValueError):
+            return max(0, int(configured))
+    try:
+        compressed_size = path.stat().st_size
+    except OSError:  # pragma: no cover - open_text will report the real error
+        return None
+    return max(16 * 1024 * 1024, compressed_size * 64)
 
 
 @contextmanager
@@ -81,18 +163,38 @@ def _stream_guard(path: Path) -> Iterator[None]:
 
 
 @contextmanager
-def open_text(path: Path, *, encoding: str = "utf-8") -> Iterator[IO[str]]:
-    """Open a possibly compressed text file for reading."""
+def open_text(
+    path: Path, *, encoding: str = "utf-8", max_chars: int | None = None
+) -> Iterator[IO[str]]:
+    """Open a possibly compressed text file for reading.
+
+    Compressed inputs get a generous decompressed-character budget by default
+    (``max_chars`` overrides it) so a small archive cannot expand without
+    bound. Uncompressed inputs have no artificial limit.
+    """
     suffix = path.suffix.lower()
+    limit = _decompression_limit(path) if max_chars is None else max_chars
     if suffix == ".gz":
         with gzip.open(path, "rt", encoding=encoding) as handle:
-            yield handle
+            yield (
+                cast(IO[str], _LimitedTextReader(handle, limit, path))
+                if limit is not None
+                else handle
+            )
     elif suffix == ".bz2":
         with bz2.open(path, "rt", encoding=encoding) as handle:
-            yield handle
+            yield (
+                cast(IO[str], _LimitedTextReader(handle, limit, path))
+                if limit is not None
+                else handle
+            )
     elif suffix == ".xz":
         with lzma.open(path, "rt", encoding=encoding) as handle:
-            yield handle
+            yield (
+                cast(IO[str], _LimitedTextReader(handle, limit, path))
+                if limit is not None
+                else handle
+            )
     else:
         with path.open("rt", encoding=encoding) as handle:
             yield handle
@@ -286,7 +388,8 @@ def expand_fasta_paths(paths: Iterable[Path], *, sort: bool = True) -> tuple[Pat
             candidates = sorted(
                 child
                 for child in path.iterdir()
-                if child.is_file()
+                if not child.is_symlink()
+                and child.is_file()
                 and strip_compression_suffix(child).suffix.lower() in _FASTA_SUFFIXES
             )
             if not candidates:
@@ -429,11 +532,18 @@ def merge_fasta(
     return dest
 
 
-def _atomic_publish(temporary: Path, destination: Path) -> None:
-    """chmod-per-rename-per-dirsync: the visible file must be durable."""
-    mask = os.umask(0)
-    os.umask(mask)
-    os.chmod(temporary, 0o666 & ~mask)
+def _atomic_publish(temporary: Path, destination: Path, *, mode: int | None = None) -> None:
+    """chmod-per-rename-per-dirsync: the visible file must be durable.
+
+    ``mode=None`` preserves the historical user-umask behaviour. Callers that
+    publish sensitive data (run manifests) pass an explicit private mode.
+    """
+    if mode is None:
+        mask = os.umask(0)
+        os.umask(mask)
+        os.chmod(temporary, 0o666 & ~mask)
+    else:
+        os.chmod(temporary, mode)
     os.replace(temporary, destination)
     try:
         descriptor = os.open(destination.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
@@ -447,7 +557,9 @@ def _atomic_publish(temporary: Path, destination: Path) -> None:
         os.close(descriptor)
 
 
-def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+def atomic_write_text(
+    path: Path, text: str, *, encoding: str = "utf-8", mode: int | None = None
+) -> None:
     """Atomically write *text* to *path* (same-directory temp + rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -461,13 +573,13 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        _atomic_publish(temporary, path)
+        _atomic_publish(temporary, path, mode=mode)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
 
 
-def atomic_write_bytes(path: Path, data: bytes) -> None:
+def atomic_write_bytes(path: Path, data: bytes, *, mode: int | None = None) -> None:
     """Atomically write *data* to *path*."""
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -481,7 +593,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        _atomic_publish(temporary, path)
+        _atomic_publish(temporary, path, mode=mode)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise

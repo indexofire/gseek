@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-11-02
+
+### Security
+- Hardened the content-addressed index cache against symlink traversal and
+  non-SHA cache keys; cache directories/files are created private (`0700` /
+  `0600`) and publish/gc refuse paths outside the cache root.
+- Manifest verification now recomputes `recipe_hash`, rejects empty
+  input/target lists, and `replay --check` fails closed on a missing
+  `result_hash` or any verification issue. `verify`/`replay` accept
+  `strict_paths=True` (CLI `--strict-paths`) to confine resolved paths to the
+  manifest base directory.
+- Precomputed `query_refs`/`target_refs` must now resolve to the same paths as
+  the request, preventing a stale or forged ref from redirecting the target
+  set.
+- Run manifests are written with private permissions; CI Actions are pinned to
+  commit SHAs and the docs build no longer receives Pages OIDC/write
+  permissions.
+- `Executor.run()` now drains stdout/stderr through bounded capture threads and
+  exposes `stdout_truncated`/`stderr_truncated`; streamed stdout has a per-line
+  limit. Compressed inputs have a decompression budget, manifest reads and
+  sketch-tree walks have size/entry limits, and absurd thread counts are
+  rejected.
+- Index publishes record artifact sizes/SHA-256 in `index.json`; cache lookup
+  checks sizes by default and supports opt-in full re-hashing via
+  `GSEEK_INDEX_VERIFY=1`/`full` or `IndexStore(verify_artifacts=True)`.
+- Index use now holds a refreshed in-use lease; GC/rebuild skip leased entries
+  and re-check the directory identity before deletion.
+- Tool binary SHA-256 is opt-in (`GSEEK_TOOL_HASH=1` or
+  `ToolResolver(hash_tools=True)`), persisted in a per-user cache, and included
+  in recipe/index keys when enabled.
+- Input paths, sequence IDs, and BWA read groups reject control characters;
+  `to_tsv` escapes tabs/newlines. `verify_inputs=True` optionally re-hashes
+  refs after a run and rejects inputs that changed mid-flight.
+
 ## [0.10.3] - 2026-10-31
 
 ### Added

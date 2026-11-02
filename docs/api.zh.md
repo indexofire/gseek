@@ -2,7 +2,7 @@
 
 [English](https://indexofire.github.io/gseek/api/) | **简体中文**
 
-> 版本：0.10.3<br>
+> 版本：0.10.4<br>
 > Python：>=3.12<br>
 > 源码基准：`src/gseek/`<br>
 > 新用户请先读 [Quickstart](quickstart.zh.md)。
@@ -27,7 +27,7 @@ M0 基座与 M1–M4 适配器已实现。
 ```python
 import gseek
 
-gseek.__version__        # "0.10.3"
+gseek.__version__        # "0.10.4"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -92,6 +92,7 @@ gseek.align(
     query_refs: Sequence[InputRef] | None = None,
     target_refs: Sequence[InputRef] | None = None,
     sort_records: bool = True,
+    verify_inputs: bool = False,
 ) -> AlignmentResult
 ```
 
@@ -116,6 +117,7 @@ gseek.align(
 | `resolver` / `executor` / `store` | 注入自定义基础设施 |
 | `query_refs` / `target_refs` | 预计算的 `InputRef` 元组（来自 `gseek.provenance.input_refs`），跳过重复哈希；长度必须与路径参数一致。适合一个 target 跑多个 query。 |
 | `sort_records` | `False` 保留 parser 顺序，适合立刻自行排序/聚合的消费者；默认 canonical 排序不变。 |
+| `verify_inputs` | 工具结束后重新哈希 query/target refs，运行期间输入变化则失败；默认关闭（会使输入 I/O 翻倍）。 |
 
 如果 `backend` 与 `adapter` 都省略，gseek 会按输入/输出/paired 能力筛选已注册
 适配器。必须恰好剩一个候选；零个或多个候选都会抛 `ConfigError`，而不是猜测。
@@ -156,7 +158,8 @@ yield，不构建 `AlignmentResult`、stats 或 manifest。它接受相同的共
 
 默认情况下 `iter_align` 完全不对 query 做哈希，target 也只在 content-addressed
 索引确实需要 key 时才哈希。自定义适配器如果要读取 `PlanContext.query_refs` /
-`target_refs`，请显式传 `prepare_refs=True`。
+`target_refs`，请显式传 `prepare_refs=True`。`verify_inputs=True` 会准备 refs
+并在迭代结束后重新哈希。
 
 ### 2.3 `gseek.align_many`
 
@@ -202,6 +205,7 @@ gseek.distance(
     keep_work: bool = False,
     manifest: Path | str | None = None,
     record_manifest: bool = True,
+    verify_inputs: bool = False,
     resolver: ToolResolver | None = None,
     executor: Executor | None = None,
     store: IndexStore | None = None,
@@ -213,6 +217,8 @@ gseek.distance(
 `external_reference=True` 表示 `reference` 已经是构建产物而不是 FASTA：`.msh`、
 `.sig`/`.zip`、sourmash rocksdb 目录或 skani database 目录。这种情况下 gseek
 跳过 reference 索引，直接对产物做哈希（目录使用确定性 tree hash；拒绝符号链接）。
+`verify_inputs=True` 可选地在工具结束后重新哈希 query/reference refs，检测运行期间
+输入变化。
 
 ### 2.5 注册表查询
 
@@ -257,7 +263,9 @@ for issue in issues:
     print(issue.severity, issue.code, issue.message)
 ```
 
-`verify` 检查记录的文件大小/SHA-256，不会重新探测工具或重跑。
+`verify` 检查记录的文件大小/SHA-256，重算 `recipe_hash`，并拒绝缺少 input/target
+的 manifest。`strict_paths=True` 把所有解析后的路径限制在 `base_dir` 内。它不会
+重新探测工具或重跑。
 
 ### 2.8 回放
 
@@ -269,8 +277,9 @@ result = gseek.replay(Path("runs/sample.manifest.json"), check=True)
 print(result.matches, result.issues)
 ```
 
-Replay 按 manifest 让适配器重新规划；绝不执行保存的 argv。`check=True` 会比较
-新的结果哈希，并抛出/报告不一致。
+Replay 按 manifest 让适配器重新规划；绝不执行保存的 argv。`check=True` 要求
+manifest 记录 `result_hash`，任何校验问题都会失败，并比较新的结果哈希。
+`strict_paths=True` 把解析后的路径限制在 `base_dir` 内，但 replay 仍不是沙箱。
 
 ### 2.9 消费者切换：`gseek.compat`
 
@@ -427,24 +436,31 @@ golden 解析（正向/反向/gapped/空结果）、坐标归一化、identity/c
 
 - 解析二进制并以 argv 列表运行；
 - 设置 `LC_ALL=C`、确定性环境与绝对路径；
-- 执行超时、排空 stderr、支持流式输出；
+- 执行超时、受限捕获 stdout/stderr、支持流式输出；
 - 返回 exit code/stdout/stderr，不解释工具语义。
 
 ### 5.3 `ToolResolver`
 
 从 PATH 与显式覆盖中查找二进制，探测版本，按进程缓存结果，并对缺失/过旧工具
-抛出类型化错误。
+抛出类型化错误。工具 SHA-256 为 opt-in（`GSEEK_TOOL_HASH=1` 或
+`ToolResolver(hash_tools=True)`），并持久化到
+`GSEEK_CACHE_DIR/tool-hashes.json`（按 path/size/mtime/inode 缓存）。
 
 ### 5.4 环境变量
 
 | 变量 | 含义 |
 | --- | --- |
 | `GSEEK_CACHE_DIR` | 索引缓存根目录 |
+| `GSEEK_INDEX_VERIFY` | `1`/`full` 时在 lookup 重哈希缓存索引产物 |
+| `GSEEK_MAX_DECOMPRESSED_BYTES` | 覆盖压缩输入解压预算 |
+| `GSEEK_TOOL_HASH` | `1`/`full` 时在 manifest/key 记录工具二进制 SHA-256 |
 | `GSEEK_<BINARY>` | 显式工具路径，例如 `GSEEK_BLASTN` |
 | `GSEEK_*_TIMEOUT` | 支持时的单工具超时覆盖 |
 | `LC_ALL` | 工具执行时强制为 `C` |
 
-密钥永远不会写入 manifest；只记录 allowlist 中的环境变量值。
+只会自动记录 allowlist 中的环境变量子集。manifest 的 `params`、
+`commands.argv` 与 `stderr_tail` 会原样记录，可能包含敏感值；敏感任务请使用
+`record_manifest=False`，或在写入前脱敏。
 
 ### 5.5 Workspace
 
@@ -464,20 +480,24 @@ golden 解析（正向/反向/gapped/空结果）、坐标归一化、identity/c
 
 ### 6.2 内容寻址 key
 
-key 包含适配器名/版本、语义参数、target 内容 SHA-256 与工具版本。`threads`、
-`timeout` 等非语义值被排除。不做 mtime 判断。
+key 包含适配器名/版本、语义参数、target 内容 SHA-256 与工具版本（启用
+`GSEEK_TOOL_HASH` 时还包含工具 SHA-256）。`threads`、`timeout` 等非语义值被
+排除。不做 mtime 判断。
 
 ### 6.3 缓存布局与 GC
 
-索引按 key 存放在缓存根目录下，带锁文件、staging 目录与原子发布。`IndexStore`
-支持 lookup、build、purge 与垃圾回收。`gseek index gc` 默认 dry-run，只有传
-`--apply` 才执行。
+索引按 key 存放在缓存根目录下，带锁文件、staging 目录与原子发布。索引/适配器
+目录以 `0700` 创建、索引文件以 `0600` 创建；共享缓存不是安全边界。`index.json`
+记录产物大小/SHA-256；lookup 默认校验大小，只有 `GSEEK_INDEX_VERIFY=1`/`full`
+（或 `IndexStore(verify_artifacts=True)`）才重哈希。长任务持有会刷新的 in-use
+lease；GC/rebuild 会跳过 leased 条目，并在删除前复核目录身份。`IndexStore` 支持
+lookup、build、purge 与垃圾回收。`gseek index gc` 默认 dry-run，只有传 `--apply` 才执行。
 
 ## 7. 可复现性与 manifest
 
 ### 7.1 哈希
 
-- `sha256_file`、`sha256_tree`（确定性 tree hash；拒绝符号链接）
+- `sha256_file`、`sha256_tree`（确定性 tree hash；拒绝符号链接；有最大条目数限制）
 - `canonical_json` / `sha256_json`
 - `result_hash` 基于排序后的规范化 records
 
@@ -506,13 +526,19 @@ recipe hash 捕获语义操作：适配器、语义参数、输入、索引 key 
 }
 ```
 
-`write_manifest`/`read_manifest` 负责模型往返；`verify_manifest` 检查记录的文件
-哈希；`replay` 重新规划并可比较 `result_hash`。
+`write_manifest`/`read_manifest` 负责模型往返；`read_manifest` 默认拒绝大于
+64 MiB 的文件。`verify_manifest` 检查记录的文件哈希并重算 `recipe_hash`；
+`replay` 重新规划并可比较 `result_hash`；`--check` 在缺少哈希或校验失败时直接
+失败。
 
 ## 8. I/O 与视图
 
 - `gseek.io`：FASTA/FASTQ 读取、行归一化、`merge_fasta`。
 - `gseek.views`：供消费者使用的显式 record 视图。
+- 压缩输入默认有 `max(16 MiB, 64 × 磁盘大小)` 的解压预算；
+  `open_text(max_chars=...)` 可覆盖。
+- 输入路径、序列 ID 与 BWA read group 拒绝控制字符；
+  `to_tsv` 转义 tab/换行，避免产生额外列/行。
 - 适配器不得在自身 workspace 之外写文件。
 
 ## 9. 错误
@@ -560,7 +586,7 @@ Schema 带版本；破坏性变更必须使用新的 schema 字符串。
 
 ## 12. 稳定性与限制
 
-- `0.10.3` 是当前版本；生产环境请固定版本。1.0 之前公共 API 仍可能变化。
+- `0.10.4` 是当前版本；生产环境请固定版本。1.0 之前公共 API 仍可能变化。
 - 迁移期间可通过 `gseek.compat` 保留 legacy 路径。
 - 各工具的后端覆盖不同；见顶部矩阵。
 - Manifest replay 要求相同的适配器/工具版本；环境变化可能合理地改变结果，并会

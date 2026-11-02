@@ -85,10 +85,10 @@ class AlignmentRecord:
     _payload_cache: str = field(default="", compare=False, repr=False, init=False)
 
     def __post_init__(self) -> None:
-        if not self.query_id:
-            raise InputError("query_id must not be empty")
-        if not self.target_id:
-            raise InputError("target_id must not be empty")
+        from .common import validate_identifier
+
+        validate_identifier("query_id", self.query_id)
+        validate_identifier("target_id", self.target_id)
         _validate_optional_finite("identity", self.identity)
         if self.identity is not None and not 0.0 <= self.identity <= 100.0:
             raise InputError(f"identity must be in [0, 100], got {self.identity}")

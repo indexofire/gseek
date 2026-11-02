@@ -28,18 +28,19 @@ def _fake_tool(path: Path, version: str) -> Path:
     return path
 
 
-def test_run_kills_child_when_communicate_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Any non-timeout exception from communicate() (decode errors, interrupts)
-    # must still reap the child: start_new_session orphans it otherwise.
+def test_run_kills_child_when_capture_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Any non-timeout failure after Popen (capture setup, decode errors,
+    # interrupts) must still reap the child: start_new_session orphans it
+    # otherwise.
     import subprocess
 
     created: list[subprocess.Popen[str]] = []
 
-    def boom(self: subprocess.Popen[str], *args: object, **kwargs: object) -> None:
-        created.append(self)
+    def boom(self: Executor, process: subprocess.Popen[str]) -> None:
+        created.append(process)
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(subprocess.Popen, "communicate", boom)
+    monkeypatch.setattr(Executor, "_start_capture", boom)
 
     killed: list[subprocess.Popen[str]] = []
     real_kill = Executor._kill

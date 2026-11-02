@@ -44,8 +44,10 @@ class DistanceRecord:
     _payload_cache: str = field(default="", compare=False, repr=False, init=False)
 
     def __post_init__(self) -> None:
-        if not self.query_id or not self.reference_id:
-            raise InputError("distance record IDs must not be empty")
+        from .common import validate_identifier
+
+        validate_identifier("query_id", self.query_id)
+        validate_identifier("reference_id", self.reference_id)
         for name, value in (
             ("distance", self.distance),
             ("pvalue", self.pvalue),

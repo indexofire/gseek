@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
@@ -155,8 +156,8 @@ class RunManifest:
         object.__setattr__(self, "params", dict(self.params))
         object.__setattr__(self, "env", dict(self.env))
         object.__setattr__(self, "extra", dict(self.extra))
-        if self.duration_s < 0:
-            raise ManifestError("duration_s must be non-negative")
+        if not math.isfinite(self.duration_s) or self.duration_s < 0:
+            raise ManifestError("duration_s must be finite and non-negative")
         if self.result_hash is not None and not is_sha256_hex(self.result_hash):
             raise ManifestError(
                 f"result_hash must be a 64-char sha256 hex digest, got {self.result_hash!r}"

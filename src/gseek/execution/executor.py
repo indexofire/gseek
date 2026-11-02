@@ -19,6 +19,108 @@ from gseek.errors import ExecutionError, InputError, ToolNotFoundError
 
 from .command import CommandPlan, ProcessResult, _read_tail, build_env
 
+_CAPTURE_CHUNK = 8192
+_JOIN_TIMEOUT_S = 5.0
+
+
+class _BoundedCapture:
+    """Drain stdout/stderr pipes without allowing unbounded memory growth."""
+
+    def __init__(
+        self, process: subprocess.Popen[str], stdout_limit: int, stderr_limit: int
+    ) -> None:
+        self.process = process
+        self.stdout_limit = max(0, stdout_limit)
+        self.stderr_limit = max(0, stderr_limit)
+        self.stdout_parts: list[str] = []
+        self.stdout_size = 0
+        self.stdout_truncated = False
+        self.stderr_parts: deque[str] = deque()
+        self.stderr_size = 0
+        self.stderr_truncated = False
+        self._threads: list[threading.Thread] = []
+
+    def start(self) -> None:
+        if self.process.stdout is not None:
+            thread = threading.Thread(target=self._read_stdout, daemon=True)
+            thread.start()
+            self._threads.append(thread)
+        if self.process.stderr is not None:
+            thread = threading.Thread(target=self._read_stderr, daemon=True)
+            thread.start()
+            self._threads.append(thread)
+
+    def _read_stdout(self) -> None:
+        assert self.process.stdout is not None
+        try:
+            while chunk := self.process.stdout.read(_CAPTURE_CHUNK):
+                remaining = self.stdout_limit - self.stdout_size
+                if remaining > 0:
+                    self.stdout_parts.append(chunk[:remaining])
+                    self.stdout_size += min(len(chunk), remaining)
+                if len(chunk) > max(0, remaining):
+                    self.stdout_truncated = True
+        except (OSError, ValueError):  # pragma: no cover - closed pipe
+            pass
+
+    def _read_stderr(self) -> None:
+        assert self.process.stderr is not None
+        try:
+            while chunk := self.process.stderr.read(_CAPTURE_CHUNK):
+                self.stderr_parts.append(chunk)
+                self.stderr_size += len(chunk)
+                while self.stderr_size > self.stderr_limit and self.stderr_parts:
+                    removed = self.stderr_parts.popleft()
+                    self.stderr_size -= len(removed)
+                    self.stderr_truncated = True
+        except (OSError, ValueError):  # pragma: no cover - closed pipe
+            pass
+
+    def join(self) -> None:
+        for thread in self._threads:
+            thread.join(timeout=_JOIN_TIMEOUT_S)
+        self._close_stream(self.process.stdout)
+        self._close_stream(self.process.stderr)
+
+    @staticmethod
+    def _close_stream(stream: Any) -> None:
+        if stream is not None:
+            with suppress(OSError):
+                stream.close()
+
+    @property
+    def stdout(self) -> str:
+        return "".join(self.stdout_parts)
+
+    @property
+    def stderr(self) -> str:
+        return "".join(self.stderr_parts)
+
+
+class _StdinWriter:
+    """Feed ``stdin_text`` without blocking the main execution path."""
+
+    def __init__(self, stream: Any, text: str) -> None:
+        self.stream = stream
+        self.text = text
+        self._thread = threading.Thread(target=self._write, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _write(self) -> None:
+        try:
+            self.stream.write(self.text)
+            self.stream.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        finally:
+            with suppress(OSError):
+                self.stream.close()
+
+    def join(self) -> None:
+        self._thread.join(timeout=_JOIN_TIMEOUT_S)
+
 
 class Executor:
     """Run :class:`CommandPlan` objects with consistent safety guarantees."""
@@ -30,12 +132,16 @@ class Executor:
         cwd: Path | None = None,
         deterministic_env: bool = True,
         stderr_limit: int = 64_000,
+        stdout_limit: int = 1_000_000,
+        stdout_line_limit: int = 8_000_000,
         tool_paths: Mapping[str, Path | str] | None = None,
     ) -> None:
         self.base_env = dict(os.environ if base_env is None else base_env)
         self.cwd = cwd
         self.deterministic_env = deterministic_env
         self.stderr_limit = stderr_limit
+        self.stdout_limit = stdout_limit
+        self.stdout_line_limit = stdout_line_limit
         self.tool_paths: dict[str, Path] = {
             str(name): Path(path) for name, path in (tool_paths or {}).items()
         }
@@ -67,39 +173,64 @@ class Executor:
 
     def _prepare(
         self, plan: CommandPlan
-    ) -> tuple[dict[str, str], str | None, Path | None, Path | None]:
+    ) -> tuple[dict[str, str], Path | None, Path | None, Path | None]:
         env = build_env(
             base=self.base_env,
             overlay=plan.env,
             deterministic=self.deterministic_env,
         )
-        stdin_text: str | None = None
-        if plan.stdin is not None:
-            try:
-                stdin_text = plan.stdin.read_text(encoding="utf-8")
-            except OSError as exc:
-                raise InputError(f"cannot read stdin file {plan.stdin}: {exc}") from exc
-        elif plan.stdin_text is not None:
-            stdin_text = plan.stdin_text
-        return env, stdin_text, plan.stdout, plan.stderr
+        # Do not slurp plan.stdin here: a large file would defeat the bounded
+        # capture work below. It is opened lazily in run().
+        return env, plan.stdin, plan.stdout, plan.stderr
+
+    def _start_capture(self, process: subprocess.Popen[str]) -> _BoundedCapture:
+        capture = _BoundedCapture(process, self.stdout_limit, self.stderr_limit)
+        capture.start()
+        return capture
 
     def run(self, plan: CommandPlan) -> ProcessResult:
         """Execute *plan*, capture stdout/stderr, and enforce the timeout."""
         plan = self._resolve_plan(plan)
-        env, stdin_text, stdout_path, stderr_path = self._prepare(plan)
+        env, stdin_path, stdout_path, stderr_path = self._prepare(plan)
         if stdout_path is not None:
             stdout_path.parent.mkdir(parents=True, exist_ok=True)
         if stderr_path is not None:
             stderr_path.parent.mkdir(parents=True, exist_ok=True)
 
-        stdout_handle = stdout_path.open("w", encoding="utf-8") if stdout_path is not None else None
-        stderr_handle = stderr_path.open("w", encoding="utf-8") if stderr_path is not None else None
+        stdin_handle = None
+        if stdin_path is not None:
+            if not stdin_path.is_file() or stdin_path.is_symlink():
+                raise InputError(f"stdin must be a regular file: {stdin_path}")
+            try:
+                stdin_handle = stdin_path.open("r", encoding="utf-8", newline="")
+            except OSError as exc:
+                raise InputError(f"cannot read stdin file {stdin_path}: {exc}") from exc
+        stdout_handle = None
+        stderr_handle = None
+        try:
+            stdout_handle = (
+                stdout_path.open("w", encoding="utf-8") if stdout_path is not None else None
+            )
+            stderr_handle = (
+                stderr_path.open("w", encoding="utf-8") if stderr_path is not None else None
+            )
+        except OSError as exc:
+            self._close_quietly(stdin_handle, stdout_handle)
+            raise InputError(f"cannot open command output: {exc}") from exc
         started = time.monotonic()
         timed_out = False
+        capture: _BoundedCapture | None = None
+        stdin_writer: _StdinWriter | None = None
         try:
             process = subprocess.Popen(
                 plan.argv,
-                stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+                stdin=(
+                    stdin_handle
+                    if stdin_handle is not None
+                    else subprocess.PIPE
+                    if plan.stdin_text is not None
+                    else subprocess.DEVNULL
+                ),
                 stdout=stdout_handle if stdout_handle is not None else subprocess.PIPE,
                 stderr=stderr_handle if stderr_handle is not None else subprocess.PIPE,
                 cwd=str(plan.cwd or self.cwd) if (plan.cwd or self.cwd) is not None else None,
@@ -111,13 +242,13 @@ class Executor:
                 start_new_session=True,
             )
         except FileNotFoundError as exc:
-            self._close_quietly(stdout_handle, stderr_handle)
+            self._close_quietly(stdin_handle, stdout_handle, stderr_handle)
             raise ToolNotFoundError(
                 f"required binary not found: {plan.argv[0]}",
                 context={"binary": plan.argv[0]},
             ) from exc
         except OSError as exc:
-            self._close_quietly(stdout_handle, stderr_handle)
+            self._close_quietly(stdin_handle, stdout_handle, stderr_handle)
             raise ExecutionError(
                 f"could not start {plan.argv[0]}: {exc}",
                 argv=plan.argv,
@@ -125,30 +256,47 @@ class Executor:
             ) from exc
 
         try:
-            stdout_text, stderr_text = process.communicate(input=stdin_text, timeout=plan.timeout_s)
+            if plan.stdin_text is not None and process.stdin is not None:
+                stdin_writer = _StdinWriter(process.stdin, plan.stdin_text)
+                stdin_writer.start()
+            capture = self._start_capture(process)
+            process.wait(timeout=plan.timeout_s)
         except subprocess.TimeoutExpired:
             timed_out = True
             self._kill(process)
-            try:
-                stdout_text, stderr_text = process.communicate(timeout=5)
-            except subprocess.TimeoutExpired:  # pragma: no cover - defensive
-                stdout_text, stderr_text = "", ""
+            with suppress(subprocess.TimeoutExpired):  # pragma: no cover - defensive
+                process.wait(timeout=5)
         except BaseException:
-            # Any other failure (decode error, KeyboardInterrupt, ...) must
-            # still reap the child: start_new_session would orphan it and the
-            # unread pipes would keep it blocked forever.
+            # Any other failure (capture thread error, KeyboardInterrupt, ...)
+            # must still reap the child: start_new_session would orphan it and
+            # the unread pipes would keep it blocked forever.
             self._kill(process)
             with suppress(subprocess.TimeoutExpired):  # pragma: no cover - defensive
                 process.wait(timeout=5)
             raise
         finally:
-            self._close_quietly(stdout_handle, stderr_handle)
+            if stdin_writer is not None:
+                stdin_writer.join()
+                self._close_quietly(process.stdin)
+            if capture is not None:
+                capture.join()
+            self._close_quietly(stdin_handle, stdout_handle, stderr_handle)
 
         duration = time.monotonic() - started
+        stdout_text = capture.stdout if capture is not None else ""
+        stderr_text = capture.stderr if capture is not None else ""
+        stdout_truncated = capture.stdout_truncated if capture is not None else False
+        stderr_truncated = capture.stderr_truncated if capture is not None else False
         if stdout_handle is not None:
             stdout_text = ""
+            stdout_truncated = False
         if stderr_handle is not None:
             stderr_text = _read_tail(stderr_path, self.stderr_limit) if stderr_path else ""
+            stderr_truncated = bool(
+                stderr_path
+                and stderr_path.exists()
+                and stderr_path.stat().st_size > self.stderr_limit
+            )
 
         result = ProcessResult(
             plan=plan,
@@ -159,6 +307,8 @@ class Executor:
             timed_out=timed_out,
             stdout_path=stdout_path,
             stderr_path=stderr_path,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
         )
         if timed_out:
             raise ExecutionError(
@@ -221,6 +371,7 @@ class Executor:
             process=process,
             started=time.monotonic(),
             stderr_limit=self.stderr_limit,
+            stdout_line_limit=self.stdout_line_limit,
         )
         try:
             if plan.stderr is not None:
@@ -262,13 +413,16 @@ class StreamedProcess:
         process: subprocess.Popen[str],
         started: float,
         stderr_limit: int = 64_000,
+        stdout_line_limit: int = 8_000_000,
     ) -> None:
         self.plan = plan
         self.process = process
         self.started = started
         self.stderr_limit = stderr_limit
+        self.stdout_line_limit = stdout_line_limit
         self._stderr_chunks: deque[str] = deque()
         self._stderr_size = 0
+        self.stderr_truncated = False
         self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._timer: threading.Timer | None = None
         self._timed_out = False
@@ -294,12 +448,13 @@ class StreamedProcess:
         if self.process.stderr is None:
             return
         try:
-            for line in self.process.stderr:
-                self._stderr_chunks.append(line)
-                self._stderr_size += len(line)
+            while chunk := self.process.stderr.read(_CAPTURE_CHUNK):
+                self._stderr_chunks.append(chunk)
+                self._stderr_size += len(chunk)
                 while self._stderr_size > self.stderr_limit and self._stderr_chunks:
                     removed = self._stderr_chunks.popleft()
                     self._stderr_size -= len(removed)
+                    self.stderr_truncated = True
         except (OSError, ValueError):  # pragma: no cover - closed pipe
             pass
 
@@ -308,6 +463,11 @@ class StreamedProcess:
         if self.process.stdout is None:
             return
         for line in self.process.stdout:
+            if len(line) > self.stdout_line_limit:
+                raise ExecutionError(
+                    f"stdout line exceeds {self.stdout_line_limit} characters: {self.plan.argv[0]}",
+                    argv=self.plan.argv,
+                )
             yield line.rstrip("\n")
 
     def wait(self) -> ProcessResult:
@@ -323,6 +483,7 @@ class StreamedProcess:
             duration_s=duration,
             timed_out=self._timed_out,
             stderr_path=self.plan.stderr,
+            stderr_truncated=self.stderr_truncated,
         )
         if self._timed_out:
             raise ExecutionError(

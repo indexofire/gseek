@@ -7,6 +7,7 @@ split is what makes adapters testable without installing external tools.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,8 @@ from gseek.io import detect_input_kind
 from gseek.model import AlignmentRecord, IndexRef, InputRef, ToolRef
 from gseek.provenance import semantic_params
 from gseek.types import InputKind, JsonValue, Molecule, OutputKind
+
+_MAX_THREADS = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,8 +52,14 @@ class AlignRequest:
             raise UnsupportedFeatureError("single-end mode requires exactly one query file")
         if self.threads < 1:
             raise UnsupportedFeatureError(f"threads must be >= 1, got {self.threads}")
-        if self.timeout_s is not None and self.timeout_s <= 0:
-            raise UnsupportedFeatureError(f"timeout_s must be positive, got {self.timeout_s}")
+        if self.threads > _MAX_THREADS:
+            raise UnsupportedFeatureError(f"threads must be <= {_MAX_THREADS}, got {self.threads}")
+        if self.timeout_s is not None and (
+            not math.isfinite(self.timeout_s) or self.timeout_s <= 0
+        ):
+            raise UnsupportedFeatureError(
+                f"timeout_s must be finite and positive, got {self.timeout_s}"
+            )
 
     @property
     def resolved_query_kind(self) -> InputKind:
@@ -81,6 +90,14 @@ class DistanceRequest:
             raise UnsupportedFeatureError("at least one reference file is required")
         if self.threads < 1:
             raise UnsupportedFeatureError(f"threads must be >= 1, got {self.threads}")
+        if self.threads > _MAX_THREADS:
+            raise UnsupportedFeatureError(f"threads must be <= {_MAX_THREADS}, got {self.threads}")
+        if self.timeout_s is not None and (
+            not math.isfinite(self.timeout_s) or self.timeout_s <= 0
+        ):
+            raise UnsupportedFeatureError(
+                f"timeout_s must be finite and positive, got {self.timeout_s}"
+            )
         if self.external_reference and len(self.reference) != 1:
             raise UnsupportedFeatureError(
                 "external_reference requires exactly one pre-built reference file"

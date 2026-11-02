@@ -16,7 +16,7 @@ gseek --error-format {json,text} <command> ...
 
 | Option | Meaning |
 | --- | --- |
-| `--version` | print `gseek 0.10.3` |
+| `--version` | print `gseek 0.10.4` |
 | `--error-format json` | default; one-line `gseek.error/1` JSON on stderr |
 | `--error-format text` | human-readable `gseek: message` plus `hint:` |
 
@@ -30,9 +30,9 @@ gseek --error-format {json,text} <command> ...
 | `gseek doctor [--json]` | probe external tools; exit 1 when something is missing |
 | `gseek index list [--json]` | list content-addressed index entries |
 | `gseek index gc [--apply] [--json]` | garbage-collect indexes; dry-run by default |
-| `gseek manifest verify PATH [--json]` | verify hashes recorded in a manifest |
-| `gseek verify PATH [--json]` | alias for the above |
-| `gseek replay PATH [--check] [--json]` | re-plan and replay; never executes old argv |
+| `gseek manifest verify PATH [--json] [--strict-paths]` | verify hashes recorded in a manifest |
+| `gseek verify PATH [--json] [--strict-paths]` | alias for the above |
+| `gseek replay PATH [--check] [--json] [--strict-paths]` | re-plan and replay; never executes old argv |
 | `gseek align ...` | align FASTA/FASTQ to target(s) |
 | `gseek distance ...` | mash/sourmash/skani distance or ANI |
 
@@ -114,8 +114,9 @@ gseek doctor --json | jq '.[] | select(.ok == false)'
    JSON document.
 2. On failure, read the process exit code first, then parse the
    `gseek.error/1` JSON on stderr.
-3. `gseek replay --check` is safe for untrusted manifests: it re-plans through
-   adapters instead of executing recorded argv.
+3. `gseek replay --check` never executes recorded argv, but it is not a
+   sandbox: it reads manifest paths and invokes the configured tools. Use
+   `--strict-paths` and an external sandbox for untrusted manifests.
 4. Concurrent calls share index file locks; run `gseek index gc --apply` when
    no build is in flight.
 5. External tools must be discoverable via `GSEEK_<BINARY>`,

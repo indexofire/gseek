@@ -194,7 +194,13 @@ class BwaAdapter(BaseAdapter):
             if params.get(key):
                 argv.append(flag)
         if "read_group" in params:
-            argv.extend(["-R", str(params["read_group"])])
+            read_group = str(params["read_group"])
+            if any(ord(char) < 32 or ord(char) == 127 for char in read_group):
+                raise UnsupportedFeatureError(
+                    "BWA read_group must not contain control characters",
+                    context={"read_group": repr(read_group)},
+                )
+            argv.extend(["-R", read_group])
         for key, flag in _VALUE_PARAMS.items():
             if key in params and params[key] is not None:
                 argv.extend([flag, str(params[key])])

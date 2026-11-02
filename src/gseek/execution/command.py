@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -35,8 +36,10 @@ class CommandPlan:
             raise InputError("command argv must not contain NUL bytes")
         if self.stdin is not None and self.stdin_text is not None:
             raise InputError("stdin and stdin_text are mutually exclusive")
-        if self.timeout_s is not None and self.timeout_s <= 0:
-            raise InputError(f"timeout_s must be positive, got {self.timeout_s}")
+        if self.timeout_s is not None and (
+            not math.isfinite(self.timeout_s) or self.timeout_s <= 0
+        ):
+            raise InputError(f"timeout_s must be finite and positive, got {self.timeout_s}")
 
     def render(self) -> str:
         return " ".join(self.argv)
@@ -70,6 +73,8 @@ class ProcessResult:
     timed_out: bool = False
     stdout_path: Path | None = None
     stderr_path: Path | None = None
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
     @property
     def ok(self) -> bool:

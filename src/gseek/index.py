@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 import time
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
@@ -20,10 +21,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from gseek.errors import CacheError, IndexBuildError, IndexLockError
+from gseek.errors import CacheError, IndexBuildError, IndexLockError, InputError
 from gseek.model import IndexRef, InputRef
 from gseek.provenance import (
     semantic_params,
+    sha256_file,
     sha256_json,
     utc_now_iso,
 )
@@ -37,8 +39,11 @@ except ImportError:  # pragma: no cover - Windows
 _DEFAULT_LOCK_TIMEOUT_S = 300.0
 _LOCK_POLL_S = 0.1
 _LEASE_FILE = ".inuse"
+_LEASE_PREFIX = ".inuse-"
 _OWNER_FILE = ".owner.json"
 _LEASE_FRESH_S = 3600.0
+_LEASE_REFRESH_S = 300.0
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
 
 class IndexPolicy(StrEnum):
@@ -58,6 +63,8 @@ class IndexGcEntry:
     size_bytes: int
     created_at: str | None
     removed: bool = False
+    inode: int | None = None
+    mtime_ns: int | None = None
 
 
 def default_cache_root() -> Path:
@@ -78,6 +85,7 @@ def compute_index_key(
     targets: Sequence[InputRef],
     params: Mapping[str, JsonValue],
     tool_versions: Mapping[str, str],
+    tool_hashes: Mapping[str, str] | None = None,
     format_version: str = "1",
 ) -> str:
     """Compute the deterministic key for an index build."""
@@ -92,6 +100,8 @@ def compute_index_key(
         ],
         "tools": {name: tool_versions[name] for name in sorted(tool_versions)},
     }
+    if tool_hashes:
+        payload["tool_hashes"] = {name: tool_hashes[name] for name in sorted(tool_hashes)}
     return sha256_json(payload)
 
 
@@ -107,17 +117,86 @@ def _lock_timeout_from_env() -> float:
 
 
 def _valid_key(key: str) -> bool:
-    """Reject keys that would escape the adapter cache directory."""
-    return bool(key) and "/" not in key and "\\" not in key and ".." not in key
+    """Require the 64-char SHA-256 shape used by :func:`compute_index_key`.
+
+    A permissive key (``"."`` in particular) would make ``path_for`` resolve to
+    the adapter directory itself, so a publish could delete the whole cache.
+    """
+    return len(key) == 64 and all(char in _HEX_DIGITS for char in key)
+
+
+def _valid_sha256(value: str) -> bool:
+    return len(value) == 64 and all(char in _HEX_DIGITS for char in value)
+
+
+def _valid_artifact_path(value: str) -> bool:
+    """Validate an exact relative artifact path stored in ``index.json``."""
+    if not value or value in {".", ".."}:
+        return False
+    path = Path(value)
+    return not path.is_absolute() and ".." not in path.parts
+
+
+def _verify_artifacts_from_env() -> bool:
+    raw = os.environ.get("GSEEK_INDEX_VERIFY", "").strip().lower()
+    return raw in {"1", "true", "yes", "on", "full"}
+
+
+def _resolved_within(path: Path, root: Path) -> bool:
+    """True when *path* resolves inside *root* without following an escape."""
+    try:
+        return path.resolve().is_relative_to(root.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
+def _harden_dir(path: Path) -> None:
+    """Best-effort private mode for a cache directory (never follow a link)."""
+    if path.is_symlink():
+        return
+    with suppress(OSError):  # pragma: no cover - read-only/exotic filesystem
+        os.chmod(path, 0o700)
+
+
+def _harden_tree(path: Path) -> None:
+    """Best-effort private modes for a freshly built index tree."""
+    if path.is_symlink():
+        return
+    for root, _directories, files in os.walk(path):
+        _harden_dir(Path(root))
+        for name in files:
+            child = Path(root) / name
+            if child.is_symlink():
+                continue
+            with suppress(OSError):  # pragma: no cover - read-only/exotic filesystem
+                os.chmod(child, 0o600)
 
 
 def _lease_is_fresh(index_dir: Path) -> bool:
-    """True when the in-use lease was touched recently."""
+    """True when any in-use lease was touched recently."""
     try:
-        age = time.time() - (index_dir / _LEASE_FILE).stat().st_mtime
+        leases = tuple(index_dir.glob(f"{_LEASE_FILE}*"))
     except OSError:
         return False
-    return age < _LEASE_FRESH_S
+    for lease in leases:
+        try:
+            age = time.time() - lease.stat().st_mtime
+        except OSError:
+            continue
+        if age < _LEASE_FRESH_S:
+            return True
+    return False
+
+
+def _same_entry_identity(entry: IndexGcEntry) -> bool:
+    """True when a listed index is still the same directory at delete time."""
+    if entry.inode is None:
+        return True
+    try:
+        stat_result = entry.path.stat()
+    except OSError:
+        return False
+    return stat_result.st_ino == entry.inode and stat_result.st_mtime_ns == entry.mtime_ns
 
 
 def _process_identity() -> dict[str, str]:
@@ -147,6 +226,8 @@ def _staging_owner_alive(staging: Path) -> bool:
             owner = json.loads(owner_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return False  # unreadable identity: treat as garbage
+        if not isinstance(owner, dict):
+            return False  # malformed identity: treat as garbage
         recorded_boot = str(owner.get("boot_id", ""))
         current_boot = _process_identity().get("boot_id", "")
         if recorded_boot and current_boot and recorded_boot != current_boot:
@@ -159,7 +240,7 @@ def _staging_owner_alive(staging: Path) -> bool:
             os.kill(int(pid), 0)
         except ProcessLookupError:
             return False
-        except OSError:
+        except (OSError, OverflowError):
             return True  # exists but is not ours; assume alive
         if recorded_start:
             try:
@@ -182,7 +263,7 @@ def _staging_owner_alive(staging: Path) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except OSError:
+    except (OSError, OverflowError):
         return True  # exists but is not ours; assume alive
     return True
 
@@ -229,12 +310,75 @@ def _entry_exists(directory: Path, entry: str) -> bool:
     return any(directory.glob(f"{entry}.*"))
 
 
+class IndexLease:
+    """A keep-alive lease for one index used by a running command."""
+
+    def __init__(
+        self,
+        store: IndexStore,
+        adapter: str,
+        key: str,
+        *,
+        interval_s: float = _LEASE_REFRESH_S,
+    ) -> None:
+        self.store = store
+        self.adapter = adapter
+        self.key = key
+        self.interval_s = max(0.001, interval_s)
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lease_path: Path | None = None
+
+    def _touch(self) -> None:
+        if self._lease_path is None:
+            return
+        with suppress(OSError):
+            self._lease_path.touch()
+
+    def start(self) -> None:
+        index_dir = self.store.path_for(self.adapter, self.key)
+        self._lease_path = index_dir / f"{_LEASE_PREFIX}{os.getpid()}-{uuid.uuid4().hex[:12]}"
+        self._touch()
+        self._thread = threading.Thread(target=self._heartbeat, daemon=True)
+        self._thread.start()
+
+    def _heartbeat(self) -> None:
+        while not self._stop.wait(self.interval_s):
+            self._touch()
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        if self._lease_path is not None:
+            with suppress(OSError):
+                self._lease_path.unlink()
+
+    def __enter__(self) -> IndexLease:
+        self.start()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+
 class IndexStore:
     """A filesystem cache for adapter indexes."""
 
-    def __init__(self, root: Path | None = None, *, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        enabled: bool = True,
+        verify_artifacts: bool | None = None,
+    ) -> None:
         self.root = (root or default_cache_root()).expanduser()
         self.enabled = enabled
+        # Metadata (size) is checked on every hit; full hashing is opt-in so a
+        # cache hit never re-reads a multi-gigabyte index by default.
+        self.verify_artifacts = (
+            _verify_artifacts_from_env() if verify_artifacts is None else verify_artifacts
+        )
         self._root_ready = False
 
     @property
@@ -251,15 +395,35 @@ class IndexStore:
         if self._root_ready:
             return
         try:
-            self.index_root.mkdir(parents=True, exist_ok=True)
+            self.index_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         except OSError as exc:
             raise CacheError(f"cannot create cache directory {self.index_root}: {exc}") from exc
+        if self.index_root.is_symlink() or not _resolved_within(self.index_root, self.root):
+            raise CacheError(f"cache index directory escapes the cache root: {self.index_root}")
+        _harden_dir(self.index_root)
         self._root_ready = True
 
     def adapter_root(self, adapter: str) -> Path:
-        if not adapter or "/" in adapter or "\\" in adapter or ".." in adapter:
+        if (
+            not adapter
+            or adapter in {".", ".."}
+            or "/" in adapter
+            or "\\" in adapter
+            or ".." in adapter
+        ):
             raise CacheError(f"invalid adapter name for cache path: {adapter!r}")
         return self.index_root / adapter
+
+    def _ensure_adapter_root(self, adapter: str) -> Path:
+        root = self.adapter_root(adapter)
+        try:
+            root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        except OSError as exc:
+            raise CacheError(f"cannot create cache directory {root}: {exc}") from exc
+        if root.is_symlink() or not _resolved_within(root, self.index_root):
+            raise CacheError(f"cache adapter directory escapes the cache root: {root}")
+        _harden_dir(root)
+        return root
 
     def path_for(self, adapter: str, key: str) -> Path:
         if not _valid_key(key):
@@ -268,11 +432,13 @@ class IndexStore:
 
     def lookup(self, adapter: str, key: str) -> IndexRef | None:
         """Return a valid cached index, or ``None`` if missing/corrupt."""
-        if not self.enabled:
+        if not self.enabled or self.index_root.is_symlink():
             return None
         final = self.path_for(adapter, key)
+        if final.is_symlink() or not _resolved_within(final, self.index_root):
+            return None
         manifest_path = final / "index.json"
-        if not manifest_path.is_file():
+        if manifest_path.is_symlink() or not manifest_path.is_file():
             return None
         try:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -295,14 +461,54 @@ class IndexStore:
         ):
             return None
         artifacts = tuple(raw_artifacts)
-        if not _valid_entry(entry) or not _entry_exists(final, entry):
+        artifact_hashes = data.get("artifact_hashes")
+        if not isinstance(artifact_hashes, dict):
+            # Legacy or unsealed cache entries cannot be integrity-checked.
             return None
+        entry_path = final / entry
+        if (
+            not _valid_entry(entry)
+            or entry_path.is_symlink()
+            or not _resolved_within(entry_path, final)
+            or not _entry_exists(final, entry)
+        ):
+            return None
+        used_artifacts: dict[str, Path] = {}
+        if entry_path.is_file():
+            used_artifacts[entry_path.relative_to(final).as_posix()] = entry_path
         try:
             for pattern in artifacts:
-                if not any(final.glob(pattern)):
+                matches = tuple(final.glob(pattern))
+                if not matches:
                     return None
-        except (NotImplementedError, ValueError):  # pragma: no cover - defensive
+                for match in matches:
+                    if match.is_symlink() or not _resolved_within(match, final):
+                        return None
+                    if match.is_file():
+                        used_artifacts[match.relative_to(final).as_posix()] = match
+        except (NotImplementedError, ValueError, OSError):  # pragma: no cover - defensive
             return None
+        for relative, artifact_path in used_artifacts.items():
+            record = artifact_hashes.get(relative)
+            if not _valid_artifact_path(relative) or not isinstance(record, dict):
+                return None
+            size = record.get("size")
+            digest = record.get("sha256")
+            if (
+                isinstance(size, bool)
+                or not isinstance(size, int)
+                or size < 0
+                or not isinstance(digest, str)
+                or not _valid_sha256(digest)
+            ):
+                return None
+            try:
+                if artifact_path.stat().st_size != size:
+                    return None
+                if self.verify_artifacts and sha256_file(artifact_path) != digest:
+                    return None
+            except (InputError, OSError, ValueError):
+                return None
         try:
             return IndexRef(
                 key=key,
@@ -324,10 +530,12 @@ class IndexStore:
     def new_staging(self, adapter: str, key: str) -> Path:
         self._require_enabled()
         self._ensure_root()
-        root = self.adapter_root(adapter)
-        root.mkdir(parents=True, exist_ok=True)
+        if not _valid_key(key):
+            raise CacheError(f"invalid index key: {key!r}")
+        root = self._ensure_adapter_root(adapter)
         staging = root / f".staging-{key}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
-        staging.mkdir(parents=True, exist_ok=False)
+        staging.mkdir(parents=False, exist_ok=False, mode=0o700)
+        _harden_dir(staging)
         # Owner identity: pid reuse would otherwise keep garbage staging alive
         # forever (same pid, different process). boot_id+starttime disambiguate.
         with suppress(OSError):  # pragma: no cover - defensive
@@ -358,12 +566,28 @@ class IndexStore:
         """
         self._require_enabled()
         self._ensure_root()
-        if not staging.is_dir():
-            raise IndexBuildError(f"staging directory does not exist: {staging}")
+        root = self._ensure_adapter_root(adapter)
+        if (
+            staging.is_symlink()
+            or not staging.is_dir()
+            or staging.parent.resolve() != root.resolve()
+            or not _resolved_within(staging, root)
+        ):
+            raise IndexBuildError(
+                f"staging directory is not a private build under {root}: {staging}",
+                context={"adapter": adapter, "staging": str(staging)},
+            )
+        _harden_tree(staging)
         if not _valid_entry(entry):
             raise IndexBuildError(
                 f"invalid index entry name: {entry!r}",
                 context={"entry": entry},
+            )
+        entry_path = staging / entry
+        if entry_path.is_symlink() or not _resolved_within(entry_path, staging):
+            raise IndexBuildError(
+                f"index entry escapes the staging directory: {entry_path}",
+                context={"entry": entry, "staging": str(staging)},
             )
         if not _entry_exists(staging, entry):
             raise IndexBuildError(
@@ -376,6 +600,30 @@ class IndexStore:
                 f"index artifacts missing after build: {missing}",
                 context={"artifacts": ", ".join(missing)},
             )
+        artifact_paths: dict[str, Path] = {}
+        if entry_path.is_file():
+            artifact_paths[entry_path.relative_to(staging).as_posix()] = entry_path
+        for pattern in artifacts:
+            for match in staging.glob(pattern):
+                if match.is_symlink() or not _resolved_within(match, staging):
+                    raise IndexBuildError(
+                        f"index artifact escapes the staging directory: {match}",
+                        context={"artifact": str(match), "staging": str(staging)},
+                    )
+                if match.is_file():
+                    artifact_paths[match.relative_to(staging).as_posix()] = match
+        artifact_hashes: dict[str, dict[str, int | str]] = {}
+        for relative in sorted(artifact_paths):
+            path = artifact_paths[relative]
+            try:
+                digest = sha256_file(path)
+                size = path.stat().st_size
+            except (InputError, OSError) as exc:
+                raise IndexBuildError(
+                    f"cannot hash index artifact {path}: {exc}",
+                    context={"artifact": str(path), "staging": str(staging)},
+                ) from exc
+            artifact_hashes[relative] = {"size": size, "sha256": digest}
 
         timestamp = created_at or utc_now_iso()
         document = {
@@ -385,6 +633,7 @@ class IndexStore:
             "adapter_version": adapter_version,
             "entry": entry,
             "artifacts": list(artifacts),
+            "artifact_hashes": artifact_hashes,
             "source_sha256": source_sha256,
             "params": dict(params),
             "tool_versions": dict(tool_versions),
@@ -395,14 +644,27 @@ class IndexStore:
             handle.write(json.dumps(document, indent=2, ensure_ascii=False, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
+        with suppress(OSError):
+            os.chmod(manifest_path, 0o600)
 
         final = self.path_for(adapter, key)
+        if final.is_symlink() or not _resolved_within(final, self.index_root):
+            raise IndexBuildError(
+                f"index path escapes the cache root: {final}",
+                context={"adapter": adapter, "key": key},
+            )
         if final.exists():
             if not replace:
                 existing = self.lookup(adapter, key)
                 if existing is not None:
                     shutil.rmtree(staging, ignore_errors=True)
                     return existing
+            if replace and _lease_is_fresh(final):
+                shutil.rmtree(staging, ignore_errors=True)
+                raise IndexBuildError(
+                    f"index {key} is currently in use; retry the rebuild later",
+                    context={"adapter": adapter, "key": key},
+                )
             try:
                 if final.is_dir() and not final.is_symlink():
                     shutil.rmtree(final)
@@ -455,15 +717,14 @@ class IndexStore:
             raise CacheError(f"invalid index key: {key!r}")
         if timeout_s is None:
             timeout_s = _lock_timeout_from_env()
-        root = self.adapter_root(adapter)
-        root.mkdir(parents=True, exist_ok=True)
+        root = self._ensure_adapter_root(adapter)
         lock_path = root / f"{key}.lock"
         if fcntl is None:  # pragma: no cover - Windows fallback
             yield
             return
         deadline = time.monotonic() + timeout_s
         while True:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
             try:
                 while True:
                     try:
@@ -502,14 +763,24 @@ class IndexStore:
                     os.close(descriptor)
 
     def list_indexes(self) -> tuple[IndexGcEntry, ...]:
-        if not self.index_root.is_dir():
+        if self.index_root.is_symlink() or not self.index_root.is_dir():
             return ()
         entries: list[IndexGcEntry] = []
         for adapter_dir in sorted(self.index_root.iterdir()):
-            if not adapter_dir.is_dir() or adapter_dir.name.startswith("."):
+            if (
+                adapter_dir.is_symlink()
+                or not adapter_dir.is_dir()
+                or adapter_dir.name.startswith(".")
+                or not _resolved_within(adapter_dir, self.index_root)
+            ):
                 continue
             for index_dir in sorted(adapter_dir.iterdir()):
-                if not index_dir.is_dir() or index_dir.name.startswith("."):
+                if (
+                    index_dir.is_symlink()
+                    or not index_dir.is_dir()
+                    or index_dir.name.startswith(".")
+                    or not _resolved_within(index_dir, adapter_dir)
+                ):
                     continue
                 manifest_path = index_dir / "index.json"
                 created_at: str | None = None
@@ -520,6 +791,15 @@ class IndexStore:
                         data = None
                     if isinstance(data, dict) and data.get("created_at") is not None:
                         created_at = str(data["created_at"])
+                inode: int | None = None
+                mtime_ns: int | None = None
+                try:
+                    stat_result = index_dir.stat()
+                except OSError:
+                    pass
+                else:
+                    inode = stat_result.st_ino
+                    mtime_ns = stat_result.st_mtime_ns
                 entries.append(
                     IndexGcEntry(
                         key=index_dir.name,
@@ -527,6 +807,8 @@ class IndexStore:
                         path=index_dir,
                         size_bytes=tree_size(index_dir),
                         created_at=created_at,
+                        inode=inode,
+                        mtime_ns=mtime_ns,
                     )
                 )
         entries.sort(key=lambda entry: (entry.created_at or "", entry.adapter, entry.key))
@@ -540,13 +822,22 @@ class IndexStore:
         that neither ``list_indexes`` nor ``gc`` would otherwise reclaim.
         """
         stale: list[IndexGcEntry] = []
-        if not self.index_root.is_dir():
+        if self.index_root.is_symlink() or not self.index_root.is_dir():
             return stale
         for adapter_dir in sorted(self.index_root.iterdir()):
-            if not adapter_dir.is_dir():
+            if (
+                adapter_dir.is_symlink()
+                or not adapter_dir.is_dir()
+                or not _resolved_within(adapter_dir, self.index_root)
+            ):
                 continue
             for child in sorted(adapter_dir.iterdir()):
-                if not child.is_dir() or not child.name.startswith(".staging-"):
+                if (
+                    child.is_symlink()
+                    or not child.is_dir()
+                    or not child.name.startswith(".staging-")
+                    or not _resolved_within(child, adapter_dir)
+                ):
                     continue
                 if _staging_owner_alive(child):
                     continue
@@ -571,6 +862,16 @@ class IndexStore:
         index_dir = self.path_for(adapter, key)
         with suppress(OSError):
             (index_dir / _LEASE_FILE).touch()
+
+    def lease(
+        self,
+        adapter: str,
+        key: str,
+        *,
+        interval_s: float = _LEASE_REFRESH_S,
+    ) -> IndexLease:
+        """Return a keep-alive lease for an index used by a running command."""
+        return IndexLease(self, adapter, key, interval_s=interval_s)
 
     def gc(
         self,
@@ -610,8 +911,13 @@ class IndexStore:
             return tuple(selected)
         removed: list[IndexGcEntry] = []
         for entry in selected:
+            if entry.path.is_symlink() or not _resolved_within(entry.path, self.index_root):
+                continue
             if entry.key.startswith(".staging-"):
-                # Garbage from a crashed build (dead pid): no lock, just drop.
+                # Garbage from a crashed build (dead pid): re-check the owner
+                # after listing, then drop.
+                if _staging_owner_alive(entry.path):
+                    continue
                 shutil.rmtree(entry.path, ignore_errors=True)
                 if not entry.path.exists():
                     removed.append(
@@ -629,8 +935,12 @@ class IndexStore:
             # its build lock. Skip it and let a later GC retry.
             try:
                 with self.lock(entry.adapter, entry.key, timeout_s=0.1):
+                    # A rebuild may have replaced this directory while we were
+                    # waiting for the lock; never delete the new generation.
+                    if _lease_is_fresh(entry.path) or not _same_entry_identity(entry):
+                        continue
                     shutil.rmtree(entry.path, ignore_errors=True)
-            except IndexLockError:
+            except (IndexLockError, CacheError):
                 continue
             if entry.path.exists():
                 continue

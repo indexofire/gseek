@@ -4,7 +4,7 @@ exclude: ^pixi\.lock$
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
     hooks:
       - id: check-yaml
       - id: check-toml
@@ -19,7 +19,7 @@ repos:
         args: [--fix=lf]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.1
+    rev: 38bfb07c0c64c304f47eb52090f8288150c77730  # v0.17.1
     hooks:
       - id: ruff
         args: [--fix]
