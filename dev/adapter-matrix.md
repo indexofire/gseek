@@ -201,12 +201,12 @@ blastn \
 
 | 预设 | 用途 | 备注 |
 | --- | --- | --- |
-| `sr` | 短读长 | 可加 `-k11 -w6 -B2` 提升分歧等位基因灵敏度（gapit 的经验） |
+| `sr` | 短读长 | 可加 `-k11 -w6 -B2` 提升分歧等位基因灵敏度（gspec 的经验） |
 | `map-ont` | Nanopore | 长读 |
 | `map-hifi` | PacBio HiFi | 长读高准确度 |
 | `asm5` | 约 0.1% 分歧的组装 | gmlst 默认 |
 | `asm10` | 约 1% 分歧 | |
-| `asm20` | 约 5% 分歧 | gapit cluster 引擎使用 |
+| `asm20` | 约 5% 分歧 | gspec cluster 引擎使用 |
 | `splice` | RNA | DNA 场景不使用 |
 
 `gseek` 只允许显式预设或由 helper 选择；不要静默回退到默认，否则结果不可复现。
@@ -656,6 +656,6 @@ DistanceRecord(
 - [ ] 解析器对空输出、截断行、非 UTF-8、CRLF、超大行有明确行为。
 - [ ] 坐标/identity/coverage 的归一化有单元测试。
 - [ ] 至少一份真实工具输出作为 golden fixture。
-- [ ] 与对应消费者（gside/gapit/gmlst）的现有模型做 parity 断言。
+- [ ] 与对应消费者（gside/gspec/gmlst）的现有模型做 parity 断言。
 - [ ] 运行 manifest 包含 binary 路径、版本、argv、输入哈希、索引 key。
 - [ ] 文档更新 `adapter-matrix.md` 和 `research.md`。

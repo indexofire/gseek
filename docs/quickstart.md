@@ -170,4 +170,4 @@ and `exit_code`. See the [error model](errors.md).
 - [Adapter matrix](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)
   — tool parameters and version floors.
 - [Compatibility](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)
-  — field differences for gside, gapit, and gmlst.
+  — field differences for gside, gspec, and gmlst.

@@ -154,7 +154,7 @@ for hit in result.records:
 
     ---
 
-    通过 `legacy | gseek | shadow` 迁移 gside、gapit 或 gmlst。
+    通过 `legacy | gseek | shadow` 迁移 gside、gspec 或 gmlst。
 
     [兼容性](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)
 
@@ -163,7 +163,7 @@ for hit in result.records:
 ## 为生态系统而建
 
 `gseek` 是 [gside](https://github.com/indexofire/gside)、
-[gapit](https://github.com/indexofire/gapit) 与
+[gspec](https://github.com/indexofire/gspec) 与
 [gmlst](https://github.com/indexofire/gmlst) 共用的比对层。调用方保留自己的
 阈值、allele calling 与物种规则；gseek 负责让证据可复现。
 

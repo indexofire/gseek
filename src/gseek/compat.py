@@ -1,12 +1,12 @@
 """Shared legacy/gseek/shadow switch for gseek consumers.
 
-Consumers keep their own legacy implementation (gside marker rules, gapit hit
+Consumers keep their own legacy implementation (gside marker rules, gspec hit
 semantics, gmlst allele calls); this module only owns the environment switch,
 shadow comparison, and fallback policy.
 
 Typical use::
 
-    engine = Engine.from_env("GAPIT_ENGINE")
+    engine = Engine.from_env("GSPEC_ENGINE")
     return engine.run(
         legacy=run_legacy,
         gseek=run_gseek,

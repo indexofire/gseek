@@ -298,7 +298,7 @@ paths to `base_dir`, but replay is still not a sandbox.
 ```python
 from gseek.compat import Engine
 
-engine = Engine.from_env("GAPIT_ENGINE")  # legacy (default) | gseek | shadow
+engine = Engine.from_env("GSPEC_ENGINE")  # legacy (default) | gseek | shadow
 
 result = engine.run(
     legacy=run_legacy,

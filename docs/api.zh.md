@@ -286,7 +286,7 @@ manifest 记录 `result_hash`，任何校验问题都会失败，并比较新的
 ```python
 from gseek.compat import Engine
 
-engine = Engine.from_env("GAPIT_ENGINE")  # legacy (default) | gseek | shadow
+engine = Engine.from_env("GSPEC_ENGINE")  # legacy (default) | gseek | shadow
 
 result = engine.run(
     legacy=run_legacy,

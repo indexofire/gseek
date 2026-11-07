@@ -166,7 +166,7 @@ class AlignmentResult:
     """A normalized alignment result plus provenance and aggregate views.
 
     ``sort_records=True`` (the default) applies gseek's canonical ordering.
-    Consumers that immediately re-sort or aggregate rows — such as gapit's
+    Consumers that immediately re-sort or aggregate rows — such as gspec's
     batch path — may pass ``sort_records=False`` and keep parser order.
     """
 

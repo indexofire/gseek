@@ -12,12 +12,12 @@ requests and results for BLAST+, minimap2, MUMmer4, KMA, BWA, mash, sourmash,
 and skani, with content-addressed indexes and replayable run manifests.
 
 It is the shared alignment layer for [gside](https://github.com/indexofire/gside),
-[gapit](https://github.com/indexofire/gapit), and
+[gspec](https://github.com/indexofire/gspec), and
 [gmlst](https://github.com/indexofire/gmlst). Adapters only plan commands and
 normalize output; biological interpretation stays in the consumer.
 
 ```text
-consumer (gside / gapit / gmlst)
+consumer (gside / gspec / gmlst)
               │
               ▼
       gseek.api: align / distance / backends

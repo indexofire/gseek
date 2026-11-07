@@ -2,7 +2,7 @@
 
 > 版本：0.1（设计稿）  
 > 日期：2026-10-22  
-> 目标读者：gseek 维护者、gside/gapit/gmlst 维护者  
+> 目标读者：gseek 维护者、gside/gspec/gmlst 维护者  
 > 配套文档：[API 参考](../docs/api.md) · [三工具调研](research.md) · [适配器矩阵](adapter-matrix.md) · [兼容性迁移](compatibility.md)
 
 ## 1. 摘要
@@ -14,7 +14,7 @@
 3. **结果模型**：无损、可序列化、坐标与 identity/coverage 语义明确的 `AlignmentRecord` / `DistanceRecord`。
 4. **可复现执行层**：内容寻址索引、run manifest、recipe hash、verify/replay、稳定排序。
 
-它不负责 MLST 分型、物种鉴定、抗性基因判定等生物学结论；这些留在 gside/gapit/gmlst。`gseek` 只回答“谁比到了谁、在哪里、有多像、用了什么工具和参数”。
+它不负责 MLST 分型、物种鉴定、抗性基因判定等生物学结论；这些留在 gside/gspec/gmlst。`gseek` 只回答“谁比到了谁、在哪里、有多像、用了什么工具和参数”。
 
 首版范围是 **BLAST+（核酸）与 minimap2** 的完整纵切，随后补 KMA、MUMmer4、BWA、mash/sourmash。计划总工期约 7–10 周（单人，含迁移缓冲）。
 
@@ -35,11 +35,11 @@
 | M2 适配器：KMA / MUMmer4 | **适配器级完成**（真实工具集成测试通过） |
 | M3 适配器：BWA/mash/sourmash | **适配器级完成**（真实工具集成测试通过） |
 | M4 适配器：蛋白 BLAST/sourmash gather/skani/replay | **完成**（真实工具集成测试通过） |
-| 消费者 parity 迁移（gmlst/gapit/gside） | 进行中：gside 分支已完成；gmlst/gapit 未开始（P1/P2） |
+| 消费者 parity 迁移（gmlst/gspec/gside） | 进行中：gside 分支已完成；gmlst/gspec 未开始（P1/P2） |
 | 测试 | 325 个单元/契约 + 36 个集成；覆盖率 88%；ruff + pyright 全绿 |
 
 当前包可以被 `import gseek`、安装，并已通过 8 个后端跑通真实工具，已实现 `replay`；
-0.10.0 已发布 PyPI（质量加固批次：空结果/资源回收/失败审计/任务门禁）。下一步是 gmlst/gapit parity。
+0.10.0 已发布 PyPI（质量加固批次：空结果/资源回收/失败审计/任务门禁）。下一步是 gmlst/gspec parity。
 
 ## 2. 背景与问题
 
@@ -48,7 +48,7 @@
 三个工具各自维护比对层：
 
 - **gside**：BLAST+、minimap2、mash、sourmash、skani。
-- **gapit**：BLAST+、minimap2。
+- **gspec**：BLAST+、minimap2。
 - **gmlst**：BLAST+、KMA、minimap2、MUMmer4。
 
 重复的代码与分歧包括：
@@ -58,7 +58,7 @@
 - minimap2 identity 公式三种（`nmatch/(nmatch+NM)`、`(alen-NM)/alen`、`nmatch/alen`）。
 - 坐标约定混用 1-based inclusive、0-based half-open，MUMmer 反向命中的 strand 甚至被硬编码为 `+`。
 - 索引失效依赖 mtime/文件存在性，缺少内容哈希与并发锁。
-- 只有 gapit 建库时记录工具版本；没有统一的单次运行 manifest，无法回放。
+- 只有 gspec 建库时记录工具版本；没有统一的单次运行 manifest，无法回放。
 - 黄金测试分散在三个仓库，无法交叉验证。
 
 详细代码级证据见 [research.md](research.md)。
@@ -66,7 +66,7 @@
 ### 2.2 为什么现在做
 
 - cgMLST scheme 越来越大，重复建索引的成本和并发冲突开始显现。
-- gside/gapit/gmlst 都在增加后端；每加一个工具就要重复实现命令、解析、错误、缓存。
+- gside/gspec/gmlst 都在增加后端；每加一个工具就要重复实现命令、解析、错误、缓存。
 - Agent/工作流场景要求可复现：同一输入、同一参数、同一工具版本，必须能解释和重放。
 - BWA 与 MinHash 是三个工具尚未覆盖但社区常用的能力，适合在统一层一次补齐。
 
@@ -80,7 +80,7 @@
 | G2 | 结果无损且语义明确 | 坐标/identity/coverage/strand 有文档和单元测试；原始 tags 保留 |
 | G3 | 可复现 | 每次运行产出 `gseek.run/1` manifest；相同 recipe 可 verify/replay |
 | G4 | 索引可复用 | 内容寻址缓存；并发安全；跨进程复用；不依赖 mtime |
-| G5 | 三工具可迁移 | gside/gapit/gmlst 的现有黄金输出在迁移后保持 parity |
+| G5 | 三工具可迁移 | gside/gspec/gmlst 的现有黄金输出在迁移后保持 parity |
 | G6 | 零强制运行时依赖 | 核心仅用 stdlib；外部工具通过 PATH/显式路径发现 |
 | G7 | 可扩展 | 第三方可通过 entry point 注册适配器；API 版本化 |
 | G8 | 性能不退化 | 同等输入/线程下，gseek 编排开销 < 5%；索引复用后更快 |
@@ -112,7 +112,7 @@
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
 │                         消费者 / CLI                               │
-│   gside            gapit             gmlst          gseek CLI      │
+│   gside            gspec             gmlst          gseek CLI      │
 └───────────────┬───────────────┬───────────────┬────────────────────┘
                 │               │               │
                 ▼               ▼               ▼
@@ -683,13 +683,13 @@ class AlignmentResult:
 | 视图 | 用途 | 对应消费者 |
 | --- | --- | --- |
 | `best_per_query_target()` | 每个 `(query,target)` 最佳行 | gmlst `select_best_matches` |
-| `primary_only()` | 过滤 secondary/supplementary | gapit/gside |
-| `summarize_by_target()` | 区间并集 breadth、加权 identity、depth | gside reads、gapit coverage |
+| `primary_only()` | 过滤 secondary/supplementary | gspec/gside |
+| `summarize_by_target()` | 区间并集 breadth、加权 identity、depth | gside reads、gspec coverage |
 | `summarize_by_query()` | 每个 query 的命中目标 | 诊断 |
-| `deduplicate(key=...)` | 显式去重 | gapit `(qseqid,qstart,qend)` |
+| `deduplicate(key=...)` | 显式去重 | gspec `(qseqid,qstart,qend)` |
 | `to_tsv()` / `to_jsonl()` / `to_blast6()` / `to_paf()` | 导出 | CLI/测试 |
 
-`summarize_by_target()` 的 breadth 使用**半开区间并集**，与 gside/gapit 的 union 算法一致；identity 使用 `aligned_length` 加权平均；`depth` 使用记录中 depth 的加权平均。
+`summarize_by_target()` 的 breadth 使用**半开区间并集**，与 gside/gspec 的 union 算法一致；identity 使用 `aligned_length` 加权平均；`depth` 使用记录中 depth 的加权平均。
 
 ### 9.3 距离模型
 
@@ -832,7 +832,7 @@ docs = ["mkdocs>=1.6", "mkdocs-material>=9"]
 3. **影子模式**：同一输入同时跑旧路径和 gseek，比较规范化结果；差异记录为 warning，不改变最终输出。
 4. **逐后端切换**：BLAST → minimap2 → KMA → MUMmer → mash/sourmash。
 5. **删除旧代码**：只有在 parity 连续两个 release 通过、且消费者集成测试全绿后才删除。
-6. **Python 版本**：gseek 要求 ≥3.12，gapit 当前是 ≥3.11；迁移时 gapit 需提升到 3.12（或把 gseek 作为可选 extra，保持 3.11 兼容）。推荐统一到 3.12。
+6. **Python 版本**：gseek 要求 ≥3.12，gspec 当前是 ≥3.11；迁移时 gspec 需提升到 3.12（或把 gseek 作为可选 extra，保持 3.11 兼容）。推荐统一到 3.12。
 
 ### 12.1 迁移顺序
 
@@ -840,8 +840,8 @@ docs = ["mkdocs>=1.6", "mkdocs-material>=9"]
 | --- | --- | --- | --- |
 | P1 | gmlst | blastn | `test_aligner_golden` 全过；真实样本 typing 结果一致 |
 | P1 | gmlst | minimap2 | 同上；fragment/join 语义一致 |
-| P2 | gapit | blastn | `tests/golden/*` 全过；abricate parity 不退化 |
-| P2 | gapit | minimap2 | reads/cluster 黄金输出一致 |
+| P2 | gspec | blastn | `tests/golden/*` 全过；abricate parity 不退化 |
+| P2 | gspec | minimap2 | reads/cluster 黄金输出一致 |
 | P2 | gside | blastn + minimap2 | marker/reads 黄金输出一致 |
 | P3 | gmlst | kma + nucmer | 黄金输出一致；修复 nucmer strand bug |
 | P3 | gside | mash + sourmash | ANI/sketch 黄金输出一致 |
@@ -892,7 +892,7 @@ tests/
 │   └── minhash/        # mash dist/screen、sourmash search CSV
 ├── parity/
 │   ├── gmlst/          # 从 test_aligner_golden 复制
-│   ├── gapit/          # 从 tests/golden 复制
+│   ├── gspec/          # 从 tests/golden 复制
 │   └── gside/          # 从 integration golden 复制
 └── integration/
 ```
@@ -938,7 +938,7 @@ tests/
   - [x] 第二次运行索引 cache_hit=true；
   - [x] manifest verify 通过；
   - [x] 不同线程数结果规范一致；
-  - [ ] 与 gmlst/gapit/gside 的消费者 parity（P1 迁移阶段）。
+  - [ ] 与 gmlst/gspec/gside 的消费者 parity（P1 迁移阶段）。
 
 ### M2：KMA + MUMmer4（8–10 人日）— 适配器级完成
 
@@ -982,7 +982,7 @@ tests/
 - [x] sourmash gather。
 - [x] skani ANI 适配器。
 - [x] `gseek replay` + manifest `result_hash`。
-- [ ] gside/gapit/gmlst 的 feature flag + 影子模式。
+- [ ] gside/gspec/gmlst 的 feature flag + 影子模式。
 - [ ] 性能基准：编排开销、索引复用、内存。
 - [ ] 1.0.0-rc1。
 - **验收**：
@@ -1039,7 +1039,7 @@ tests/
 | --- | --- | --- | --- |
 | D1 | 结果模型实现 | stdlib dataclass vs pydantic | **dataclass**：零依赖、与消费者 pydantic 模型解耦 |
 | D2 | 项目/分发名 | `gseek` | **gseek**：`gcore` 已被 PyPI 占用，2026-10-22 更名 |
-| D3 | Python 下限 | 3.12 vs 3.11 | **3.12**（用户要求；gapit 迁移时提升） |
+| D3 | Python 下限 | 3.12 vs 3.11 | **3.12**（用户要求；gspec 迁移时提升） |
 | D4 | 是否内置纯 Python MinHash | 是/否 | **否**：只封装 mash/sourmash，避免算法正确性负担 |
 | D5 | 是否支持蛋白 BLAST 首发 | 是/否 | **M4**：先核酸，蛋白模式后补 |
 | D6 | 是否提供 `gseek.compat.gmlst` | 是/否 | **先不提供**：消费者薄映射更清晰；迁移痛点多时再加 |

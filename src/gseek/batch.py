@@ -110,7 +110,7 @@ def align_many(
     ``compute_inputs=False`` to skip hashing query files entirely (the result
     then has empty ``inputs``). ``sort_records=False`` keeps parser order for
     consumers that re-sort or aggregate rows immediately. ``annotate_batch=True``
-    adds a ``batch_index`` tag to every record so a consumer (gapit) can split
+    adds a ``batch_index`` tag to every record so a consumer (gspec) can split
     the merged result back into its input files.
     """
     paths = _paths(queries)

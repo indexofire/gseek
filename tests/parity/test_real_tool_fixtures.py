@@ -4,8 +4,8 @@ The expected formulas come from the consumer implementations:
 
 - gside BLAST: identity=pident, coverage=aligned_length/qlen*100.
 - gside PAF: identity=100*nmatch/alen, breadth from target spans.
-- gapit BLAST: 15-column outfmt with sstrand/stitle and 1-based coordinates.
-- gapit PAF: identity=100*(alen-NM)/alen.
+- gspec BLAST: 15-column outfmt with sstrand/stitle and 1-based coordinates.
+- gspec PAF: identity=100*(alen-NM)/alen.
 - gmlst BLAST: query=allele, subject=contig, coverage=alen/qlen.
 - gmlst PAF: identity=100*nmatch/(nmatch+NM), coverage=(qend-qstart)/qlen.
 - gmlst KMA: identity=Template_Identity, coverage=Template_Coverage/100.
@@ -55,7 +55,7 @@ def _align_request(*, params: dict[str, JsonValue] | None = None) -> AlignReques
     )
 
 
-def test_blast_fixture_parity_with_gside_and_gapit(tmp_path: Path) -> None:
+def test_blast_fixture_parity_with_gside_and_gspec(tmp_path: Path) -> None:
     lines = (_FIXTURES / "blast" / "blastn_nucl.tsv").read_text(encoding="utf-8").splitlines()
     ctx = _align_context(
         _align_request(),
@@ -81,12 +81,12 @@ def test_blast_fixture_parity_with_gside_and_gapit(tmp_path: Path) -> None:
     # gside parity: coverage is aligned_length / length, not string length.
     assert 100.0 * forward.aligned_length / forward.query_length == pytest.approx(100.0)
     assert 100.0 * forward.aligned_length / forward.target_length == pytest.approx(50.0)
-    # gapit parity: 1-based inclusive BLAST coordinates become 0-based half-open.
+    # gspec parity: 1-based inclusive BLAST coordinates become 0-based half-open.
     assert (reverse.target_start, reverse.target_end) == (100, 400)
     assert reverse.strand is Strand.MINUS
 
 
-def test_minimap2_fixture_parity_with_gapit_and_gmlst(tmp_path: Path) -> None:
+def test_minimap2_fixture_parity_with_gspec_and_gmlst(tmp_path: Path) -> None:
     lines = (_FIXTURES / "minimap2" / "align.paf").read_text(encoding="utf-8").splitlines()
     ctx = _align_context(
         _align_request(params={"preset": "asm5"}),
@@ -106,7 +106,7 @@ def test_minimap2_fixture_parity_with_gapit_and_gmlst(tmp_path: Path) -> None:
     assert forward.target_coverage == pytest.approx(0.5)
     assert forward.query_coverage == pytest.approx(1.0)
 
-    # gapit parity: NM-first identity.
+    # gspec parity: NM-first identity.
     assert forward.identity_method == "paf_nm"
     assert forward.identity == pytest.approx(forward.identity_from_nm or 0.0)
     assert forward.identity_from_matches == pytest.approx(100.0)

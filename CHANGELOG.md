@@ -94,7 +94,7 @@ All notable changes to this project are documented here. The format follows
   is the only way to print the version).
 - CLI: ``backends``, ``doctor``, and ``index list`` render bordered Unicode
   tables (``┌─┬─┐ / ├─┼─┤ / └─┴─┘``) for visual consistency with
-  gmlst/gside/gapit output; ``--json`` output is unchanged.
+  gmlst/gside/gspec output; ``--json`` output is unchanged.
 - CLI: bare ``gseek`` now prints help and exits 0 instead of a bare
   argparse error; subcommands with missing required arguments print the
   full help before the error line.
@@ -354,7 +354,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - With `record_manifest=False`, gseek now skips query record counting. Counting
-  millions of FASTQ records only served manifest provenance and made gapit reads
+  millions of FASTQ records only served manifest provenance and made gspec reads
   screening materially slower than the legacy path.
 
 ## [0.8.1] - 2026-10-25
@@ -371,13 +371,13 @@ All notable changes to this project are documented here. The format follows
 
 - BLAST target materialization now allows duplicate subject IDs. VFDB contains
   16 repeated IDs with distinct sequences; legacy BLAST databases accept them,
-  and rejecting them broke a real consumer (gapit).
+  and rejecting them broke a real consumer (gspec).
 
 ## [0.7.0] - 2026-10-25
 
 ### Added
 
-- BLAST `blastx-fast` task support (gapit uses this faster protein task).
+- BLAST `blastx-fast` task support (gspec uses this faster protein task).
 
 ## [0.6.0] - 2026-10-24
 
@@ -537,7 +537,7 @@ All notable changes to this project are documented here. The format follows
   indexing or re-sketching references. External artifacts are recorded as
   `InputKind.SKETCH` and replay re-passes the flag.
 - Added real-tool golden fixtures under `tests/fixtures/`, field/formula parity
-  tests for gside/gapit/gmlst, and an 8-backend real replay matrix. Sourmash
+  tests for gside/gspec/gmlst, and an 8-backend real replay matrix. Sourmash
   reference IDs now fall back from signature name to a genome-like filename to
   the unique `md5`, so references inside one combined `.sig` no longer collide.
 

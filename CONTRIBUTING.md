@@ -1,6 +1,6 @@
 # Contributing to gseek
 
-感谢贡献。`gseek` 是 gside/gapit/gmlst 共用的 DNA 比对基础设施；正确性、可复现性和向后兼容比“多写代码”更重要。
+感谢贡献。`gseek` 是 gside/gspec/gmlst 共用的 DNA 比对基础设施；正确性、可复现性和向后兼容比“多写代码”更重要。
 
 ## 1. 开发环境
 
@@ -53,7 +53,7 @@ pixi run check
 | 单元 | `tests/test_*.py` | 否 | 模型、解析、命令规划、hash、index |
 | golden | `tests/fixtures/` | 否 | 真实工具输出，逐字段断言 |
 | 集成 | `tests/integration/` | 是 | `@pytest.mark.integration`，无工具 skip |
-| parity | `tests/parity/` | 部分 | 与 gside/gapit/gmlst 旧模型对比 |
+| parity | `tests/parity/` | 部分 | 与 gside/gspec/gmlst 旧模型对比 |
 
 要求：
 

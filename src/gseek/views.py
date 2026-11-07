@@ -94,7 +94,7 @@ def _format_cell(value: JsonValue) -> str:
 def deduplicate_intervals(records: Iterable[AlignmentRecord]) -> tuple[AlignmentRecord, ...]:
     """Keep the first record per ``(query_id, query_start, query_end)``.
 
-    The key deliberately ignores strand and target, matching gapit's
+    The key deliberately ignores strand and target, matching gspec's
     abricate-compatible dedup rule. The key is claimed before any downstream
     coverage filter, so callers should deduplicate first and filter second.
 

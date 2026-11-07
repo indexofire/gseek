@@ -8,10 +8,10 @@
 
 `gseek` 是一个**零运行时依赖**的 Python 库，为 DNA 比对与距离工具提供稳定、可复现的统一接口。它规范化 BLAST+、minimap2、MUMmer4、KMA、BWA、mash、sourmash 与 skani 的请求和结果，并提供内容寻址索引与可回放 manifest。
 
-它是 [gside](https://github.com/indexofire/gside)、[gapit](https://github.com/indexofire/gapit)、[gmlst](https://github.com/indexofire/gmlst) 共用的比对层。适配器只负责规划命令与无损规范化；生物学解释留在消费者。
+它是 [gside](https://github.com/indexofire/gside)、[gspec](https://github.com/indexofire/gspec)、[gmlst](https://github.com/indexofire/gmlst) 共用的比对层。适配器只负责规划命令与无损规范化；生物学解释留在消费者。
 
 ```text
-consumer (gside / gapit / gmlst)
+consumer (gside / gspec / gmlst)
               │
               ▼
       gseek.api: align / distance / backends

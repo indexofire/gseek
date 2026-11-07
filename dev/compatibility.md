@@ -1,6 +1,6 @@
 # gseek 兼容性与迁移
 
-> 目标：让 gside/gapit/gmlst 在不改变用户可见行为的前提下，逐步把比对层切换到 `gseek`。  
+> 目标：让 gside/gspec/gmlst 在不改变用户可见行为的前提下，逐步把比对层切换到 `gseek`。  
 > 原则：**先冻结行为，再替换实现；先影子模式，再删除旧代码。**
 
 ## 1. 迁移总览
@@ -10,7 +10,7 @@ Phase 0  冻结黄金用例
    │
 Phase 1  gmlst: blastn + minimap2 (feature flag)
    │
-Phase 2  gapit: blastn + minimap2; gside: marker/reads
+Phase 2  gspec: blastn + minimap2; gside: marker/reads
    │
 Phase 3  gmlst: kma + nucmer; gside: mash/sourmash
    │
@@ -122,7 +122,7 @@ return result_old
 - [ ] novel allele 提取的 sequence 方向正确。
 - [ ] 失败/缺失工具的错误信息仍可操作。
 
-## 3. gapit 迁移
+## 3. gspec 迁移
 
 ### 3.1 现有模型
 
@@ -132,13 +132,13 @@ return result_old
 
 ### 3.2 字段映射
 
-| gapit 字段 | gseek 来源 | 说明 |
+| gspec 字段 | gseek 来源 | 说明 |
 | --- | --- | --- |
 | `qseqid` | `record.query_id` | |
-| `qstart/qend` | `record.query_start + 1` / `record.query_end` | gapit 保留 BLAST 1-based inclusive；转换时加 1 |
+| `qstart/qend` | `record.query_start + 1` / `record.query_end` | gspec 保留 BLAST 1-based inclusive；转换时加 1 |
 | `qlen` | `record.query_length` | |
 | `sseqid` | `record.target_id` | |
-| `sstart/send` | 由 `record.target_start/end` + `strand` 还原 | gapit 需要原始方向 |
+| `sstart/send` | 由 `record.target_start/end` + `strand` 还原 | gspec 需要原始方向 |
 | `slen` | `record.target_length` | |
 | `sstrand` | `record.strand` → `"minus"/"plus"` | |
 | `evalue` | `record.evalue` | |
@@ -150,33 +150,33 @@ return result_old
 
 `Hit` 的派生字段：
 
-| gapit | gseek/views | 说明 |
+| gspec | gseek/views | 说明 |
 | --- | --- | --- |
-| coverage_pct | `views.target_coverage(record, mode="ungapped")` | gapit 用 `(length-gaps)/slen` |
-| coverage_map | gapit 自己的 `minimap()` | 渲染逻辑留在 gapit |
+| coverage_pct | `views.target_coverage(record, mode="ungapped")` | gspec 用 `(length-gaps)/slen` |
+| coverage_map | gspec 自己的 `minimap()` | 渲染逻辑留在 gspec |
 | aligned_len | `aligned_length - gap_count` | |
-| gene/database/accession/product | gapit 的 `decode_seqid` | 业务解析留在 gapit |
-| fragments | `views.fragment_merge()` 或 gapit 自己 | gapit 的 `--merge-fragments` 是应用策略 |
-| merged | gapit | |
+| gene/database/accession/product | gspec 的 `decode_seqid` | 业务解析留在 gspec |
+| fragments | `views.fragment_merge()` 或 gspec 自己 | gspec 的 `--merge-fragments` 是应用策略 |
+| merged | gspec | |
 
 ### 3.3 行为差异与处理
 
-| 行为 | gapit 现状 | gseek | 迁移处理 |
+| 行为 | gspec 现状 | gseek | 迁移处理 |
 | --- | --- | --- | --- |
-| dedup key | `(qseqid, qstart, qend)`，忽略 strand，first wins，且 key 在 coverage 过滤前占用 | 默认不去重 | gapit 继续用自己的 `_swap_dedup` 视图；或 `result.deduplicate(key=...)` 需要支持“先占 key 再过滤” |
-| coverage filter | `(length-gaps)/slen >= mincov`，用未舍入浮点 | `ungapped_target_coverage` | 用 gseek 属性或保留 gapit 计算 |
+| dedup key | `(qseqid, qstart, qend)`，忽略 strand，first wins，且 key 在 coverage 过滤前占用 | 默认不去重 | gspec 继续用自己的 `_swap_dedup` 视图；或 `result.deduplicate(key=...)` 需要支持“先占 key 再过滤” |
+| coverage filter | `(length-gaps)/slen >= mincov`，用未舍入浮点 | `ungapped_target_coverage` | 用 gseek 属性或保留 gspec 计算 |
 | primary filter | `tp:A:S` 过滤 | 默认 primary only | 一致 |
 | BLAST 蛋白模式 | `blastx` + `-task blastx-fast`，无 `-perc_identity` | M4 支持 | 迁移时保留参数差异 |
-| 输入规范化 | `seqconvert` 转 FASTA + stdin | gseek 支持 FASTA/FASTQ；GBK/EMBL 转换留在 gapit | gseek 只接收 FASTA/FASTQ |
-| 输出顺序 | `sorted(hits, key=(sequence,start))` | 稳定排序键不同 | gapit 继续排序 |
-| 错误 envelope | `gapit.error/1` + exit code | `gseek.error/1` | gapit 捕获并转换，保持自己的 envelope |
+| 输入规范化 | `seqconvert` 转 FASTA + stdin | gseek 支持 FASTA/FASTQ；GBK/EMBL 转换留在 gspec | gseek 只接收 FASTA/FASTQ |
+| 输出顺序 | `sorted(hits, key=(sequence,start))` | 稳定排序键不同 | gspec 继续排序 |
+| 错误 envelope | `gspec.error/1` + exit code | `gseek.error/1` | gspec 捕获并转换，保持自己的 envelope |
 
-### 3.4 gapit 验收清单
+### 3.4 gspec 验收清单
 
 - [ ] `tests/golden/*.tsv|json|md` 全过。
 - [ ] `tests/parity/` 与 abricate 的 parity 不退化。
 - [ ] reads/cluster 路径的 PAF 解析与聚合一致。
-- [ ] 蛋白模式（M4）参数与 gapit 现有一致。
+- [ ] 蛋白模式（M4）参数与 gspec 现有一致。
 - [ ] 错误 envelope/exit code 不变。
 - [ ] 大输入下不物化全部记录（流式/上限）。
 
@@ -257,8 +257,8 @@ skani `AniHit`：M4 增加 `SkaniAdapter` 后再映射；第一版不在范围�
 | --- | --- |
 | gside BLAST | `coverage = 100 * aligned_length / query_length` |
 | gside minimap2 | `identity = 100 * nmatch / alen` → `identity_from_matches` |
-| gapit BLAST | 15 列 outfmt；`sstrand` → `strand`，坐标 1-based→0-based |
-| gapit minimap2 | `identity = 100 * (alen - NM) / alen` → `identity_from_nm` |
+| gspec BLAST | 15 列 outfmt；`sstrand` → `strand`，坐标 1-based→0-based |
+| gspec minimap2 | `identity = 100 * (alen - NM) / alen` → `identity_from_nm` |
 | gmlst BLAST | `query=allele`、`subject=contig`、`coverage=alen/qlen` |
 | gmlst minimap2 | `identity = 100 * nmatch / (nmatch + NM)` → `identity_nmatch_nm` |
 | gmlst KMA | `identity=Template_Identity`、`coverage=Template_Coverage/100` |
@@ -269,7 +269,7 @@ skani `AniHit`：M4 增加 `SkaniAdapter` 后再映射；第一版不在范围�
 | 消费者 | 视图 |
 | --- | --- |
 | gmlst | `best_per_query_target()`、`aligned_length`、`count_distinct_occurrences()` |
-| gapit | `primary_only()`、`identity_from_nm`、`ungapped_target_coverage` |
+| gspec | `primary_only()`、`identity_from_nm`、`ungapped_target_coverage` |
 | gside | `summarize_by_target()`、`identity_from_matches`、`distance` |
 
 ### 5.3 兼容性测试资产
@@ -301,7 +301,7 @@ tests/integration/
 | 风险 | 触发点 | 检查 |
 | --- | --- | --- |
 | 方向翻转导致 coverage 取错 | gmlst BLAST 从 alleles=query 改为 genome=query | 用 `target_coverage`；parity 对比 |
-| 1-based/0-based 混用 | gapit 需要原始 BLAST 坐标 | 转换测试；round-trip |
+| 1-based/0-based 混用 | gspec 需要原始 BLAST 坐标 | 转换测试；round-trip |
 | identity 公式变化 | minimap2 | 显式 `identity_method`；gmlst 先用旧公式 |
 | 平局顺序变化 | best-per | 保留原始 `record_index`；稳定排序 |
 | 索引 key 漏参数 | BLAST `-task`、minimap2 preset、KMA `-k` | 适配器参数清单 + 测试 |

@@ -1,6 +1,6 @@
 """Typed errors and the ``gseek.error/1`` JSON envelope.
 
-The error model is intentionally close to ``gapit``'s: every failure carries a
+The error model is intentionally close to ``gspec``'s: every failure carries a
 stable ``code``, an exit code suitable for a CLI, a machine-readable context
 mapping, and an optional actionable hint. Library callers can catch
 :class:`GseekError` and inspect ``code`` without parsing messages.

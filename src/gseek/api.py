@@ -152,7 +152,7 @@ def align(
 ) -> AlignmentResult:
     """Align one query (or read pair) against a target set.
 
-    This is the main entry point for consumers such as gside/gapit/gmlst.
+    This is the main entry point for consumers such as gside/gspec/gmlst.
     The adapter is chosen explicitly via ``backend`` or unambiguously from the
     request capabilities.
 

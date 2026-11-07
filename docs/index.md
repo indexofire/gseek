@@ -158,7 +158,7 @@ for hit in result.records:
 
     ---
 
-    Migrate gside, gapit, or gmlst through `legacy | gseek | shadow`.
+    Migrate gside, gspec, or gmlst through `legacy | gseek | shadow`.
 
     [Compatibility](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)
 
@@ -168,7 +168,7 @@ for hit in result.records:
 
 `gseek` is the shared alignment layer for
 [gside](https://github.com/indexofire/gside),
-[gapit](https://github.com/indexofire/gapit), and
+[gspec](https://github.com/indexofire/gspec), and
 [gmlst](https://github.com/indexofire/gmlst). Consumers keep their own
 thresholds, allele calling, and species rules; gseek keeps the evidence
 reproducible.

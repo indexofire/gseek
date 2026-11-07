@@ -28,7 +28,7 @@
 - M0 基座 + M1/M2/M3/M4 适配器完成：结果模型、执行层、索引缓存、manifest、Runner、API、CLI。
 - `gseek backends` 现在包含 **blast**、**minimap2**、**kma**、**mummer**、**bwa**、**mash**、**sourmash**、**skani**；真实工具集成测试通过。
 - BLAST 支持核酸与蛋白任务；mash 支持 dist/screen；sourmash 支持 search/gather；`gseek replay` 已实现。
-- 消费者迁移/parity（gside/gapit/gmlst）与 1.0 发布尚未完成。
+- 消费者迁移/parity（gside/gspec/gmlst）与 1.0 发布尚未完成。
 
 ## 3. TDD 是强制流程
 
@@ -72,7 +72,7 @@
 4. 坐标/identity/coverage 归一化测试。
 5. 索引 key / artifacts 测试。
 6. 集成测试（`@pytest.mark.integration`，无工具时 skip）。
-7. 消费者 parity 测试（gmlst/gapit/gside 的现有 golden）。
+7. 消费者 parity 测试（gmlst/gspec/gside 的现有 golden）。
 
 只写命令规划、不写解析，或只写解析、不写错误路径，都不算完成。
 
@@ -197,7 +197,7 @@ pixi run test tests/test_x.py::test_y   # 目标测试
 版本字符串，以及创建 Release/tag。
 
 功能、修复、重构完成后可以提出建议版本号，但必须停下等待确认；不要在同一
-步里自动升版本。依赖方（gside/gapit 等）的 `gseek` pin 也只能在版本号确认
+步里自动升版本。依赖方（gside/gspec 等）的 `gseek` pin 也只能在版本号确认
 后同步调整。
 
 ## 11. 提交与发布

@@ -11,7 +11,7 @@ from gseek.errors import ConfigError
 
 
 def test_from_env_defaults_to_legacy() -> None:
-    engine = Engine.from_env("GAPIT_ENGINE", env={})
+    engine = Engine.from_env("GSPEC_ENGINE", env={})
     assert engine.mode is EngineMode.LEGACY
 
 
@@ -30,7 +30,7 @@ def test_from_env_values(raw: str, mode: EngineMode) -> None:
 
 def test_from_env_rejects_unknown_mode() -> None:
     with pytest.raises(ConfigError, match="unknown engine mode"):
-        Engine.from_env("GAPIT_ENGINE", env={"GAPIT_ENGINE": "automatic"})
+        Engine.from_env("GSPEC_ENGINE", env={"GSPEC_ENGINE": "automatic"})
 
 
 def test_legacy_mode_does_not_call_gseek() -> None:

@@ -166,4 +166,4 @@ gseek --error-format text align --backend blast --query q.fna --target t.fna
 - [适配器矩阵](https://github.com/indexofire/gseek/blob/main/dev/adapter-matrix.md)：
   各工具参数与版本下限。
 - [兼容性迁移](https://github.com/indexofire/gseek/blob/main/dev/compatibility.md)：
-  gside、gapit、gmlst 的字段差异。
+  gside、gspec、gmlst 的字段差异。
