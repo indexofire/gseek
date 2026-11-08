@@ -583,6 +583,8 @@ gseek.distance/1
 gseek.run/1
 gseek.index/1
 gseek.error/1
+gseek.ispcr/1
+gseek.primers/1
 ```
 
 Example alignment record:
@@ -615,3 +617,43 @@ Schemas are versioned; breaking changes require a new schema string.
 - Manifest replay requires the same adapter/tool versions; environment changes
   can legitimately change results and are reported as replay mismatches.
 - Return to the [documentation index](index.md) or [Chinese API reference](https://indexofire.github.io/gseek/zh/api/).
+
+## 13. In-silico PCR
+
+`gseek.ispcr` answers the question an alignment cannot: *does this primer pair
+amplify, and what is the product size?* It is pure stdlib arithmetic on
+sequences — no external tool, no index, no subprocess — so any consumer can put
+PCR confirmation next to its alignments in the same result vocabulary.
+
+```python
+import gseek
+
+pairs = gseek.read_primers("primers.tsv")            # or gseek.primers/1 JSON
+result = gseek.ispcr("assembly.fna", pairs, max_mismatches=2)
+result.pairs                                          # frozenset of positive pair names
+result.amplicons[0].size                              # product length in bp
+result.to_document()                                  # gseek.ispcr/1
+```
+
+```console
+$ gseek ispcr -p primers.tsv -q assembly.fna -f tsv
+FILE          PAIR    CONTIG  START  END  SIZE  FWD_MM  REV_MM
+assembly.fna  HS55_1  ctg3    1250   1583 334   0       0
+```
+
+| Concept | Rule |
+|---|---|
+| Amplification | the forward primer matches one strand and the reverse primer's reverse complement matches the same strand downstream, inside the pair's size window |
+| Orientation | both strands are searched; coordinates are always on the forward strand, 0-based half-open |
+| Mismatches | counted per primer; `max_mismatches` is a run default a pair may override |
+| Indels | `max_edits` enables a gapped pass (edits = substitutions + insertions + deletions per primer site); it runs only when the substitution scan finds nothing, and `0` (default) keeps substitution-only matching |
+| Performance | pure stdlib; the optional `gseek-ispcr-fast` Rust wheel (`rust/ispcr`, q-gram index + banded edit distance) replaces the per-seed scans with one pass per contig: 7 pairs 263 → 20 ms per 1.7 Mb genome |
+| IUPAC | ambiguity codes in a primer match their expansion; an ambiguity code in the target is a mismatch, never a match |
+| Contigs | one contig per amplicon — products never span contigs |
+| Limits | seed-and-verify search; at most 4096 seed hits verified per seed, so a low-complexity target cannot blow up the runtime |
+
+Primer tables are TSV (`name`, `forward`, `reverse`, optional `min_size`,
+`max_size`, `max_mismatches`) or `gseek.primers/1` JSON. The result document is
+`gseek.ispcr/1`; every amplicon carries its product size, both primer sites and
+each primer's mismatch count, so a call can be audited without re-running.
+

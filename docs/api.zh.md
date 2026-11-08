@@ -561,6 +561,8 @@ gseek.distance/1
 gseek.run/1
 gseek.index/1
 gseek.error/1
+gseek.ispcr/1
+gseek.primers/1
 ```
 
 alignment record 示例：
@@ -592,3 +594,40 @@ Schema 带版本；破坏性变更必须使用新的 schema 字符串。
 - Manifest replay 要求相同的适配器/工具版本；环境变化可能合理地改变结果，并会
   报告为 replay 不一致。
 - 返回[文档首页](index.zh.md)或 [English API reference](https://indexofire.github.io/gseek/api/)。
+
+## 13. 电子 PCR
+
+`gseek.ispcr` 回答比对回答不了的问题：*这对引物是否扩增，产物多大？* 它是对序列的
+纯 stdlib 运算——不需要外部工具、不需要索引、不启动子进程——因此任何消费者都能把
+PCR 确认与比对结果放进同一套结果词汇里。
+
+```python
+import gseek
+
+pairs = gseek.read_primers("primers.tsv")            # 或 gseek.primers/1 JSON
+result = gseek.ispcr("assembly.fna", pairs, max_mismatches=2)
+result.pairs                                          # 阳性引物对名称集合
+result.amplicons[0].size                              # 产物长度（bp）
+result.to_document()                                  # gseek.ispcr/1
+```
+
+```console
+$ gseek ispcr -p primers.tsv -q assembly.fna -f tsv
+FILE          PAIR    CONTIG  START  END  SIZE  FWD_MM  REV_MM
+assembly.fna  HS55_1  ctg3    1250   1583 334   0       0
+```
+
+| 概念 | 规则 |
+|---|---|
+| 扩增判定 | 正向引物匹配某条链、反向引物的反向互补序列匹配同一条链且位于其下游，产物落在该对引物的大小窗口内 |
+| 方向 | 两条链都搜索；坐标始终给在正向链、0-based 半开 |
+| 错配 | 按引物分别计数；`max_mismatches` 是运行默认值，引物对可覆盖 |
+| 插入/缺失 | `max_edits` 开启带间隙的校验（每引物位点的替换+插入+删除总数）；仅在替换扫描无命中时运行，`0`（默认）保持纯替换匹配 |
+| 性能 | 纯 stdlib；可选的 `gseek-ispcr-fast` Rust 轮子（`rust/ispcr`，q-gram 索引 + 带状编辑距离）把逐种子扫描换成每个 contig 一遍：7 对引物 263 → 20 ms（1.7 Mb 基因组） |
+| IUPAC | 引物中的简并碱基匹配其展开集合；目标序列中的简并碱基计为错配，绝不算匹配 |
+| Contig | 一个扩增子只在一个 contig 内——产物不跨 contig |
+| 上限 | 种子+校验检索；每个种子最多校验 4096 个命中，低复杂度目标不会拖爆运行时间 |
+
+引物表为 TSV（`name`、`forward`、`reverse`，可选 `min_size`、`max_size`、
+`max_mismatches`）或 `gseek.primers/1` JSON。结果文档为 `gseek.ispcr/1`：每个扩增子
+都带产物大小、两个引物位点与各自错配数，无需重跑即可复核。

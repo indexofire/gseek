@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **in-silico PCR (`gseek.ispcr`)** — primer pairs in, amplicons out, with no
+  external tool and no index: pure-stdlib seed-and-verify matching (forward
+  primer on one strand, reverse primer's reverse complement downstream, inside
+  the pair's product-size window). Both strands are searched, coordinates are
+  0-based half-open on the forward strand, mismatches are counted per primer,
+  IUPAC codes in a primer expand while an ambiguity code in the target counts
+  as a mismatch, and products never span contigs. New `gseek.ispcr/1` result
+  document and `gseek.primers/1` primer-set document; `gseek ispcr` CLI
+  (`--format table|tsv|json`); `read_primers`, `ispcr`, `ispcr_many`,
+  `positive_pairs`.
+- **isPCR indel tolerance** — `max_edits` (run-level and per pair) adds a gapped
+  pass: 6 nt seeds with shifted candidates verified by a banded unit-cost edit
+  distance, reporting the substitution/insertion/deletion mix and the subject
+  span each primer consumed (so the product size moves with the indel). The pass
+  runs only when the substitution scan finds nothing, and `0` — the default —
+  keeps the substitution-only behaviour byte for byte.
+- **Optional Rust accelerator (`rust/ispcr`, `gseek-ispcr-fast`)** — a q-gram
+  index (q = 8) built once per contig plus a banded edit-distance verifier,
+  imported as `gseek._ispcr_fast` when installed and skipped otherwise: 7 primer
+  pairs drop from 263 ms to 20 ms per 1.7 Mb genome (30 pairs: 1130 → 22 ms).
+  `gseek.ispcr_backend()` reports which engine is in use.
+
 ## [0.10.4] - 2026-11-02
 
 ### Security

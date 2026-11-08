@@ -33,6 +33,7 @@ gseek --error-format {json,text} <command> ...
 | `gseek manifest verify PATH [--json] [--strict-paths]` | verify hashes recorded in a manifest |
 | `gseek verify PATH [--json] [--strict-paths]` | alias for the above |
 | `gseek replay PATH [--check] [--json] [--strict-paths]` | re-plan and replay; never executes old argv |
+| `gseek ispcr -p PRIMERS -q FASTA [-f table\|tsv\|json]` | in-silico PCR: positive primer pairs and product sizes |
 | `gseek align ...` | align FASTA/FASTQ to target(s) |
 | `gseek distance ...` | mash/sourmash/skani distance or ANI |
 

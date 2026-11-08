@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "gseek-ispcr-fast"
+version = "0.1.0"
+description = "Optional Rust accelerator for gseek.ispcr (in-silico PCR site search)"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[tool.maturin]
+module-name = "gseek._ispcr_fast"

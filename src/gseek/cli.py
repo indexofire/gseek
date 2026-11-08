@@ -104,6 +104,37 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     replay_parser.add_argument("--json", action="store_true")
 
+    ispcr_parser = subparsers.add_parser(
+        "ispcr", help="in-silico PCR: amplify primer pairs in assemblies"
+    )
+    ispcr_parser.add_argument(
+        "--primers",
+        "-p",
+        type=Path,
+        required=True,
+        action="append",
+        help="primer table (TSV: name/forward/reverse) or gseek.primers/1 JSON",
+    )
+    ispcr_parser.add_argument(
+        "--query",
+        "-q",
+        type=Path,
+        required=True,
+        action="append",
+        help="assembly FASTA to amplify in",
+    )
+    ispcr_parser.add_argument("--max-mismatches", type=int, default=None)
+    ispcr_parser.add_argument(
+        "--max-edits",
+        type=int,
+        default=None,
+        help="indel-tolerant pass: edits (substitutions + indels) per primer site",
+    )
+    ispcr_parser.add_argument("--min-size", type=int, default=None)
+    ispcr_parser.add_argument("--max-size", type=int, default=None)
+    ispcr_parser.add_argument("--output", "-o", type=Path, default=None)
+    ispcr_parser.add_argument("--format", "-f", choices=("table", "json", "tsv"), default="table")
+
     for name, help_text, needs_ref in (
         ("align", "align a query against targets", False),
         ("distance", "compare queries against references", True),
@@ -420,6 +451,78 @@ def _cmd_run(args: argparse.Namespace, *, distance_mode: bool) -> int:
     return 0
 
 
+def _cmd_ispcr(args: argparse.Namespace) -> int:
+    from gseek.ispcr import DEFAULT_MAX_MISMATCHES, ispcr, read_primers
+
+    pairs: list[object] = []
+    for primer_path in args.primers:
+        pairs.extend(read_primers(primer_path))
+    kwargs: dict[str, Any] = {}
+    if args.max_mismatches is not None:
+        kwargs["max_mismatches"] = args.max_mismatches
+    if args.max_edits is not None:
+        kwargs["max_edits"] = args.max_edits
+    if args.min_size is not None:
+        kwargs["min_size"] = args.min_size
+    if args.max_size is not None:
+        kwargs["max_size"] = args.max_size
+
+    documents = []
+    rows: list[dict[str, Any]] = []
+    for query in args.query:
+        result = ispcr(query, pairs, **kwargs)  # type: ignore[arg-type]
+        documents.append(result.to_document())
+        for amplicon in result.amplicons:
+            rows.append(
+                {
+                    "FILE": query.name,
+                    "PAIR": amplicon.pair,
+                    "CONTIG": amplicon.contig,
+                    "START": amplicon.start + 1,
+                    "END": amplicon.end,
+                    "SIZE": amplicon.size,
+                    "FWD_MM": amplicon.forward_mismatches,
+                    "REV_MM": amplicon.reverse_mismatches,
+                }
+            )
+    text: str
+    if args.format == "json":
+        payload: Any = (
+            documents[0]
+            if len(documents) == 1
+            else {
+                "schema": documents[0]["schema"],
+                "tool": documents[0]["tool"],
+                "params": {"max_mismatches": args.max_mismatches or DEFAULT_MAX_MISMATCHES},
+                "primers": documents[0]["primers"],
+                "files": [entry for document in documents for entry in document["files"]],
+                "summary": {
+                    "pairs_tested": documents[0]["summary"]["pairs_tested"],
+                    "pairs_positive": sum(
+                        document["summary"]["pairs_positive"] for document in documents
+                    ),
+                },
+            }
+        )
+        text = json.dumps(to_jsonable(payload), indent=2, ensure_ascii=False)
+    elif args.format == "tsv":
+        header = ["FILE", "PAIR", "CONTIG", "START", "END", "SIZE", "FWD_MM", "REV_MM"]
+        lines = ["\t".join(header)]
+        lines.extend("\t".join(str(row[column]) for column in header) for row in rows)
+        text = "\n".join(lines)
+    elif not rows:
+        text = f"no amplicons ({len(pairs)} primer pair(s) x {len(args.query)} query file(s))"
+    else:
+        text = _render_table(
+            ["FILE", "PAIR", "CONTIG", "START", "END", "SIZE", "FWD_MM", "REV_MM"], rows
+        )
+    if args.output is not None:
+        args.output.write_text(text + "\n", encoding="utf-8")
+    else:
+        print(text)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     resolved = list(sys.argv[1:] if argv is None else argv)
@@ -439,6 +542,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_manifest(args)
         if args.command == "replay":
             return _cmd_replay(args)
+        if args.command == "ispcr":
+            return _cmd_ispcr(args)
         if args.command == "align":
             return _cmd_run(args, distance_mode=False)
         if args.command == "distance":

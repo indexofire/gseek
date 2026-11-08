@@ -32,6 +32,7 @@ gseek --error-format {json,text} <command> ...
 | `gseek manifest verify PATH [--json] [--strict-paths]` | 检查 manifest 记录的文件哈希 |
 | `gseek verify PATH [--json] [--strict-paths]` | 同上，便捷别名 |
 | `gseek replay PATH [--check] [--json] [--strict-paths]` | 重新规划并重放，不执行旧 argv |
+| `gseek ispcr -p PRIMERS -q FASTA [-f table\|tsv\|json]` | 电子 PCR：阳性引物对与产物大小 |
 | `gseek align ...` | 比对 FASTA/FASTQ 到 target |
 | `gseek distance ...` | mash/sourmash/skani 距离/ANI |
 
