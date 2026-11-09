@@ -16,7 +16,7 @@ gseek --error-format {json,text} <command> ...
 
 | Option | Meaning |
 | --- | --- |
-| `--version` | print `gseek 0.10.4` |
+| `--version` | print `gseek 0.10.5` |
 | `--error-format json` | default; one-line `gseek.error/1` JSON on stderr |
 | `--error-format text` | human-readable `gseek: message` plus `hint:` |
 

@@ -2,7 +2,7 @@
 
 [English](https://indexofire.github.io/gseek/api/) | **简体中文**
 
-> 版本：0.10.4<br>
+> 版本：0.10.5<br>
 > Python：>=3.12<br>
 > 源码基准：`src/gseek/`<br>
 > 新用户请先读 [Quickstart](quickstart.zh.md)。
@@ -27,7 +27,7 @@ M0 基座与 M1–M4 适配器已实现。
 ```python
 import gseek
 
-gseek.__version__        # "0.10.4"
+gseek.__version__        # "0.10.5"
 gseek.ALIGNMENT_SCHEMA   # "gseek.alignment/1"
 gseek.DISTANCE_SCHEMA    # "gseek.distance/1"
 gseek.RUN_SCHEMA         # "gseek.run/1"
@@ -588,7 +588,7 @@ Schema 带版本；破坏性变更必须使用新的 schema 字符串。
 
 ## 12. 稳定性与限制
 
-- `0.10.4` 是当前版本；生产环境请固定版本。1.0 之前公共 API 仍可能变化。
+- `0.10.5` 是当前版本；生产环境请固定版本。1.0 之前公共 API 仍可能变化。
 - 迁移期间可通过 `gseek.compat` 保留 legacy 路径。
 - 各工具的后端覆盖不同；见顶部矩阵。
 - Manifest replay 要求相同的适配器/工具版本；环境变化可能合理地改变结果，并会

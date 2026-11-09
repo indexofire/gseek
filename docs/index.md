@@ -79,7 +79,7 @@ biological rules stay in the consumer.*
 ## Install
 
 ```bash
-pip install gseek==0.10.4
+pip install gseek==0.10.5
 gseek --version
 gseek doctor
 gseek backends --json

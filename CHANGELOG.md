@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-11-09
+
 ### Added
 - **in-silico PCR (`gseek.ispcr`)** — primer pairs in, amplicons out, with no
   external tool and no index: pure-stdlib seed-and-verify matching (forward
