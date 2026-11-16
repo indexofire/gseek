@@ -219,6 +219,7 @@ result = switch.run(legacy_call, gseek_call, compare=compare)
 - [适配器矩阵](dev/adapter-matrix.md)
 - [兼容性与迁移](dev/compatibility.md)
 - [测试与贡献规则](AGENTS.md)
+- [安全模型（威胁模型）](SECURITY_MODEL.md)
 - [变更记录](CHANGELOG.md)
 
 ## 开发
