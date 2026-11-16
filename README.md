@@ -240,6 +240,7 @@ Development documents:
 - [Adapter matrix](dev/adapter-matrix.md)
 - [Compatibility and migration](dev/compatibility.md)
 - [Testing and contribution rules](AGENTS.md)
+- [Security model (threat model)](SECURITY_MODEL.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development
